@@ -5,6 +5,7 @@
 !.env.*.example
 secrets/
 *.service-account.json
+/firebase_sdk.json
 
 # Future app outputs and local SQLite data
 node_modules/
