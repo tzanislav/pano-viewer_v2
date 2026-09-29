@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'r
 import { photoNameKey, photoNameStem, sceneDisplayNumbers, type PanoramaAsset, type Scene } from '@pano/domain';
 import { errorMessage } from '../../app/apiClient';
 import { tourApi } from '../tours/tourApi';
+import { putSignedFile } from '../tours/putSignedFile';
 
 type UploadItem = {
   id: number;
@@ -20,25 +21,9 @@ function fileMime(file: File): string {
   return file.type || mimeByExtension[file.name.split('.').at(-1)?.toLowerCase() || ''] || '';
 }
 
-function putPhoto(url: string, file: File, mimeType: string, onProgress: (percent: number) => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('PUT', url);
-    request.setRequestHeader('Content-Type', mimeType);
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100));
-    };
-    request.onload = () => {
-      if (request.status >= 200 && request.status < 300) resolve();
-      else reject(new Error(`Photo transfer failed (${request.status}). Check storage CORS and try again.`));
-    };
-    request.onerror = () => reject(new Error('Photo transfer failed. Check your connection and storage CORS.'));
-    request.send(file);
-  });
-}
-
-export function PhotoLibrary({ tourId, assets, scenes, onChanged }: {
-  tourId: string; assets: PanoramaAsset[]; scenes: Scene[]; onChanged: () => Promise<void>;
+export function PhotoLibrary({ tourId, assets, scenes, placedSceneIds, selectedSceneId, onSelect, onChanged }: {
+  tourId: string; assets: PanoramaAsset[]; scenes: Scene[]; placedSceneIds: ReadonlySet<string>;
+  selectedSceneId: string | null; onSelect: (sceneId: string | null) => void; onChanged: () => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
@@ -65,7 +50,7 @@ export function PhotoLibrary({ tourId, assets, scenes, onChanged }: {
       });
       assetId = reserved.asset.id;
       await onChanged();
-      await putPhoto(reserved.uploadUrl, item.file, mimeType, progress => changeItem(item.id, { progress }));
+      await putSignedFile(reserved.uploadUrl, item.file, mimeType, progress => changeItem(item.id, { progress }));
       transferred = true;
       changeItem(item.id, { status: 'processing', progress: 100 });
       await tourApi.completeUpload(tourId, assetId);
@@ -132,7 +117,7 @@ export function PhotoLibrary({ tourId, assets, scenes, onChanged }: {
   const sceneNumbers = sceneDisplayNumbers(scenes);
   const readyCards = ready.map((asset, index) => {
     const scene = scenes.find(candidate => candidate.panoramaAssetId === asset.id);
-    return { asset, number: scene ? sceneNumbers.get(scene.id) ?? scenes.length + index + 1 : scenes.length + index + 1 };
+    return { asset, sceneId: scene?.id, number: scene ? sceneNumbers.get(scene.id) ?? scenes.length + index + 1 : scenes.length + index + 1 };
   }).sort((a, b) => a.number - b.number);
   const pending = assets.filter(asset => asset.status !== 'ready' && !items.some(item => item.nameKey === asset.filenameKey && item.status !== 'error'));
   return <div className="photo-library">
@@ -163,11 +148,17 @@ export function PhotoLibrary({ tourId, assets, scenes, onChanged }: {
         <div className="photo-row-actions"><button className="text-button" onClick={() => void finishPending(asset.id)}>Check upload</button><button className="text-button" onClick={() => void removePending(asset.id)}>Remove</button></div>
       </div>
     )}</div>}
-    {readyCards.length > 0 ? <ol className="photo-list photo-ready-list" aria-label="Uploaded panoramas">{readyCards.map(({ asset, number }) =>
-      <li className="photo-card" key={asset.id}>
-        <PhotoThumbnail tourId={tourId} assetId={asset.id} alt="" />
-        <span className="photo-card-number" aria-hidden="true">{number}</span>
-        <strong className="photo-card-name" title={photoNameStem(asset.fileName)}>{photoNameStem(asset.fileName)}</strong>
+    {readyCards.length > 0 ? <ol className="photo-list photo-ready-list" aria-label="Uploaded panoramas">{readyCards.map(({ asset, sceneId, number }) =>
+      <li className="photo-card" key={asset.id} data-selected={selectedSceneId === sceneId || undefined}>
+        <button className="photo-card-action" type="button" disabled={!sceneId || placedSceneIds.has(sceneId)}
+          aria-pressed={selectedSceneId === sceneId}
+          aria-label={`${photoNameStem(asset.fileName)}, photo ${number}${sceneId && placedSceneIds.has(sceneId) ? ', already placed' : ''}`}
+          onClick={() => { if (sceneId) onSelect(selectedSceneId === sceneId ? null : sceneId); }}>
+          <PhotoThumbnail tourId={tourId} assetId={asset.id} alt="" />
+          <span className="photo-card-number" aria-hidden="true">{number}</span>
+          <strong className="photo-card-name" title={photoNameStem(asset.fileName)}>{photoNameStem(asset.fileName)}</strong>
+          {sceneId && placedSceneIds.has(sceneId) && <span className="photo-card-placed">Placed</span>}
+        </button>
       </li>
     )}</ol> : items.length === 0 && pending.length === 0 && <p className="empty-copy">No 360 photos yet. Upload several photos to start your tour.</p>}
   </div>;

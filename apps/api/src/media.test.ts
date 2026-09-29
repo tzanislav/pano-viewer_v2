@@ -8,6 +8,8 @@ import { TourRepository } from './repositories/tourRepository.js';
 import { MediaService } from './services/mediaService.js';
 import { TourService } from './services/tourService.js';
 import type { StorageGateway } from './storage/StorageGateway.js';
+import { UnderlayRepository } from './repositories/underlayRepository.js';
+import { UnderlayService } from './services/underlayService.js';
 
 const databases: ReturnType<typeof openDatabase>[] = [];
 
@@ -32,7 +34,10 @@ function fixture() {
   const media = new MediaService(new MediaRepository(db), storage, {
     maxPanoramaBytes: 20_000_000, uploadUrlTtlSeconds: 900, readUrlTtlSeconds: 900
   });
-  const app = createApp(new TourService(new TourRepository(db)), media, async token => {
+  const underlays = new UnderlayService(new UnderlayRepository(db), storage, {
+    maxPanoramaBytes: 20_000_000, maxUnderlayBytes: 20_000_000, uploadUrlTtlSeconds: 900, readUrlTtlSeconds: 900
+  });
+  const app = createApp(new TourService(new TourRepository(db)), media, underlays, async token => {
     if (token === 'alice' || token === 'bob') return token;
     throw new Error('invalid token');
   }, 'http://localhost:5173');

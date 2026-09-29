@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { NavigationLink, Page, Placement, PlanConnection, Scene, Tour, TourEditorData } from '@pano/domain';
 import { AppError } from '../errors.js';
 import { MediaRepository } from './mediaRepository.js';
+import { UnderlayRepository } from './underlayRepository.js';
 
 interface TourRow {
   id: string;
@@ -94,7 +95,8 @@ export class TourRepository {
     const connections = (this.db.prepare('SELECT * FROM plan_connections WHERE tour_id = ?').all(id) as ConnectionRow[]).map(toConnection);
     const links = (this.db.prepare('SELECT * FROM navigation_links WHERE tour_id = ?').all(id) as LinkRow[]).map(toLink);
     const assets = new MediaRepository(this.db).list(ownerUid, id);
-    return { tour: toTour(tour), pages, scenes, placements, connections, links, assets };
+    const underlays = new UnderlayRepository(this.db).list(ownerUid, id);
+    return { tour: toTour(tour), pages, scenes, placements, connections, links, assets, underlays };
   }
 
   updateTour(ownerUid: string, id: string, input: {
@@ -146,7 +148,8 @@ export class TourRepository {
   deletePage(ownerUid: string, tourId: string, pageId: string, expectedVersion: number): TourEditorData {
     this.db.transaction(() => {
       this.requireVersion(ownerUid, tourId, expectedVersion);
-      const page = this.db.prepare('SELECT id FROM pages WHERE id = ? AND tour_id = ?').get(pageId, tourId);
+      const page = this.db.prepare('SELECT id, plan_asset_id FROM pages WHERE id = ? AND tour_id = ?')
+        .get(pageId, tourId) as { id: string; plan_asset_id: string | null } | undefined;
       if (!page) throw new AppError(404, 'PAGE_NOT_FOUND', 'Page not found');
       const pageCount = this.db.prepare('SELECT COUNT(*) AS count FROM pages WHERE tour_id = ?').get(tourId) as { count: number };
       if (pageCount.count <= 1) throw new AppError(409, 'LAST_PAGE', 'A tour must keep at least one page');
@@ -166,6 +169,62 @@ export class TourRepository {
       )`).run(tourId, tourId, pageId, pageId);
       this.db.prepare('DELETE FROM placements WHERE tour_id = ? AND page_id = ?').run(tourId, pageId);
       this.db.prepare('DELETE FROM pages WHERE tour_id = ? AND id = ?').run(tourId, pageId);
+      const now = new Date().toISOString();
+      if (page.plan_asset_id) this.db.prepare('UPDATE media_assets SET retired_at = ?, updated_at = ? WHERE id = ?')
+        .run(now, now, page.plan_asset_id);
+      this.db.prepare(`UPDATE media_assets SET retired_at = ?, updated_at = ? WHERE tour_id = ?
+        AND underlay_page_id = ? AND retired_at IS NULL`).run(now, now, tourId, pageId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  createPlacement(ownerUid: string, tourId: string, input: {
+    pageId: string; sceneId: string; x: number; y: number; expectedVersion: number;
+  }): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      const page = this.db.prepare('SELECT id FROM pages WHERE id = ? AND tour_id = ?').get(input.pageId, tourId);
+      if (!page) throw new AppError(404, 'PAGE_NOT_FOUND', 'Page not found');
+      const scene = this.db.prepare(`SELECT s.id FROM scenes s JOIN media_assets m ON m.id = s.panorama_asset_id
+        WHERE s.id = ? AND s.tour_id = ? AND m.status = 'ready' AND m.retired_at IS NULL`)
+        .get(input.sceneId, tourId);
+      if (!scene) throw new AppError(404, 'SCENE_NOT_FOUND', 'Ready photo not found');
+      const existing = this.db.prepare('SELECT id FROM placements WHERE tour_id = ? AND scene_id = ?')
+        .get(tourId, input.sceneId);
+      if (existing) throw new AppError(409, 'SCENE_ALREADY_PLACED', 'This photo already has a canvas node');
+      this.db.prepare('INSERT INTO placements (id, tour_id, page_id, scene_id, x, y) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), tourId, input.pageId, input.sceneId, input.x, input.y);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  updatePlacement(ownerUid: string, tourId: string, placementId: string, input: {
+    x: number; y: number; expectedVersion: number;
+  }): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      const result = this.db.prepare('UPDATE placements SET x = ?, y = ? WHERE id = ? AND tour_id = ?')
+        .run(input.x, input.y, placementId, tourId);
+      if (!result.changes) throw new AppError(404, 'PLACEMENT_NOT_FOUND', 'Node not found');
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  deletePlacement(ownerUid: string, tourId: string, placementId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const placement = this.db.prepare('SELECT id FROM placements WHERE id = ? AND tour_id = ?')
+        .get(placementId, tourId);
+      if (!placement) throw new AppError(404, 'PLACEMENT_NOT_FOUND', 'Node not found');
+      this.db.prepare(`DELETE FROM navigation_links WHERE tour_id = ? AND plan_connection_id IN (
+        SELECT id FROM plan_connections WHERE tour_id = ? AND (placement_a_id = ? OR placement_b_id = ?)
+      )`).run(tourId, tourId, placementId, placementId);
+      this.db.prepare(`DELETE FROM plan_connections WHERE tour_id = ? AND (placement_a_id = ? OR placement_b_id = ?)`)
+        .run(tourId, placementId, placementId);
+      this.db.prepare('DELETE FROM placements WHERE id = ? AND tour_id = ?').run(placementId, tourId);
       this.bumpVersion(tourId);
     })();
     return this.get(ownerUid, tourId);

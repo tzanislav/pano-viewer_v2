@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { ZodError } from 'zod';
-import { createPageInput, createTourInput, deletePageInput, reservePanoramaInput, updatePageInput, updateTourInput } from '@pano/domain';
+import { createPageInput, createPlacementInput, createTourInput, deletePageInput, deletePlacementInput,
+  reservePanoramaInput, reserveUnderlayInput, updatePageInput, updatePlacementInput, updateTourInput } from '@pano/domain';
 import type { VerifyToken } from './auth/firebaseAdmin.js';
 import { AppError } from './errors.js';
 import { log } from './logging.js';
 import { TourService } from './services/tourService.js';
 import { MediaService } from './services/mediaService.js';
+import { UnderlayService } from './services/underlayService.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -16,7 +18,8 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function createApp(tours: TourService, media: MediaService, verifyToken: VerifyToken, webOrigin: string) {
+export function createApp(tours: TourService, media: MediaService, underlays: UnderlayService,
+  verifyToken: VerifyToken, webOrigin: string) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -70,11 +73,56 @@ export function createApp(tours: TourService, media: MediaService, verifyToken: 
     log('info', 'page.update', { requestId: req.requestId, outcome: 'success', tourId: data.tour.id });
     res.json(data);
   });
-  app.delete('/api/tours/:id/pages/:pageId', (req, res) => {
+  app.delete('/api/tours/:id/pages/:pageId', async (req, res) => {
     const { expectedVersion } = deletePageInput.parse(req.body);
     const data = tours.deletePage(req.ownerUid, req.params.id, req.params.pageId, expectedVersion);
+    await media.cleanupRetired();
     log('info', 'page.delete', { requestId: req.requestId, outcome: 'success', tourId: data.tour.id, pageId: req.params.pageId });
     res.json(data);
+  });
+  app.post('/api/tours/:id/placements', (req, res) => {
+    const input = createPlacementInput.parse(req.body);
+    const data = tours.createPlacement(req.ownerUid, req.params.id, input);
+    log('info', 'placement.create', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, sceneId: input.sceneId });
+    res.status(201).json(data);
+  });
+  app.patch('/api/tours/:id/placements/:placementId', (req, res) => {
+    const input = updatePlacementInput.parse(req.body);
+    const data = tours.updatePlacement(req.ownerUid, req.params.id, req.params.placementId, input);
+    log('info', 'placement.update', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, placementId: req.params.placementId });
+    res.json(data);
+  });
+  app.delete('/api/tours/:id/placements/:placementId', (req, res) => {
+    const { expectedVersion } = deletePlacementInput.parse(req.body);
+    const data = tours.deletePlacement(req.ownerUid, req.params.id, req.params.placementId, expectedVersion);
+    log('info', 'placement.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, placementId: req.params.placementId });
+    res.json(data);
+  });
+  app.post('/api/tours/:id/pages/:pageId/underlay/uploads', async (req, res) => {
+    const input = reserveUnderlayInput.parse(req.body);
+    const result = await underlays.reserve(req.ownerUid, req.params.id, req.params.pageId, input);
+    await media.cleanupRetired();
+    log('info', 'underlay.reserve', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, pageId: req.params.pageId, assetId: result.upload.id });
+    res.status(201).json(result);
+  });
+  app.post('/api/tours/:id/pages/:pageId/underlay/uploads/:assetId/complete', async (req, res) => {
+    const result = await underlays.complete(req.ownerUid, req.params.id, req.params.pageId, req.params.assetId);
+    log('info', 'underlay.complete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, pageId: req.params.pageId, assetId: req.params.assetId });
+    res.json({ upload: result });
+  });
+  app.delete('/api/tours/:id/pages/:pageId/underlay/uploads/:assetId', async (req, res) => {
+    await underlays.cancel(req.ownerUid, req.params.id, req.params.pageId, req.params.assetId);
+    res.status(204).end();
+  });
+  app.get('/api/tours/:id/pages/:pageId/underlay-url', async (req, res) => {
+    res.json(await underlays.readUrl(req.ownerUid, req.params.id, req.params.pageId));
+  });
+  app.delete('/api/tours/:id/pages/:pageId/underlay', async (req, res) => {
+    const { expectedVersion } = deletePageInput.parse(req.body);
+    await underlays.remove(req.ownerUid, req.params.id, req.params.pageId, expectedVersion);
+    await media.cleanupRetired();
+    log('info', 'underlay.remove', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, pageId: req.params.pageId });
+    res.json(tours.get(req.ownerUid, req.params.id));
   });
   app.post('/api/tours/:id/uploads', async (req, res) => {
     const input = reservePanoramaInput.parse(req.body);

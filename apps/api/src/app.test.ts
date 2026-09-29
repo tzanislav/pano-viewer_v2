@@ -10,6 +10,8 @@ import { TourService } from './services/tourService.js';
 import { MediaService } from './services/mediaService.js';
 import { MediaRepository } from './repositories/mediaRepository.js';
 import type { StorageGateway } from './storage/StorageGateway.js';
+import { UnderlayRepository } from './repositories/underlayRepository.js';
+import { UnderlayService } from './services/underlayService.js';
 
 const databases: ReturnType<typeof openDatabase>[] = [];
 const temporaryDirectories: string[] = [];
@@ -28,7 +30,10 @@ function testApp() {
   const media = new MediaService(new MediaRepository(db), storage, {
     maxPanoramaBytes: 50_000_000, uploadUrlTtlSeconds: 900, readUrlTtlSeconds: 900
   });
-  const app = createApp(new TourService(new TourRepository(db)), media, async (token) => {
+  const underlays = new UnderlayService(new UnderlayRepository(db), storage, {
+    maxPanoramaBytes: 50_000_000, maxUnderlayBytes: 20_000_000, uploadUrlTtlSeconds: 900, readUrlTtlSeconds: 900
+  });
+  const app = createApp(new TourService(new TourRepository(db)), media, underlays, async (token) => {
     if (token === 'alice' || token === 'bob') return token;
     throw new Error('invalid token');
   }, 'http://localhost:5173');
@@ -146,7 +151,7 @@ describe('tour access and persistence', () => {
     const reopened = openDatabase(path);
     databases.push(reopened);
     const versions = reopened.prepare('SELECT version FROM schema_migrations').all();
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }]);
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
     expect(new TourRepository(reopened).list('alice')[0].title).toBe('Saved tour');
   });
 });

@@ -1,6 +1,6 @@
 # 360 Walkthrough Builder
 
-The app lets a creator build 360° walkthroughs from panorama photos and floor pages. The current slice includes Firebase account screens, protected tour routes, SQLite-backed tours and pages, north calibration controls, page deletion, and multi-photo uploads to private S3 storage. A tour always keeps at least one page. Deleting another page removes its nodes and plan connections while keeping the photos. The panorama viewer and link editing follow the [build plan](Documentation/BUILD_PLAN.md).
+The app lets a creator build 360° walkthroughs from panorama photos and floor pages. The current slice includes Firebase account screens, protected tour routes, SQLite-backed tours and pages, north calibration controls, page deletion, multi-photo uploads, page-specific underlay images, and numbered canvas nodes. Media is stored in private S3 storage. A tour always keeps at least one page. Deleting another page removes its nodes and plan connections while keeping the panorama photos. The panorama viewer and link editing follow the [build plan](Documentation/BUILD_PLAN.md).
 
 ## Run locally
 
@@ -38,3 +38,5 @@ npm run build
 - [Build plan](Documentation/BUILD_PLAN.md) — implementation sequence and verification gates.
 
 The editor accepts multiple JPEG, PNG, or WebP panoramas through the file picker or drag-and-drop area. Images must be roughly 2:1 and at least 1024 × 512 pixels. Reusing a photo name in the same tour, regardless of case or extension, replaces its image while retaining its scene ID, placement, and links. The old image remains available until the new image passes validation. Upload progress and processing errors appear in the photo library. The viewer route currently reports uploaded scenes while interactive panorama rendering is being built. The owner will use an Edit mode toggle in the viewer to place and drag link handles; the creator workspace has no embedded panorama preview.
+
+Each page can upload or replace a JPEG, PNG, or WebP underlay from the canvas toolbar. The × removes that page's underlay and deletes its stored image while retaining nodes. Select an available panorama in the library and click the canvas to place its numbered node. A placed panorama cannot create a second canvas node. Drag a node or use its X/Y inspector fields to move it. Underlay and nodes pan and zoom together. **Create Link** is shown as unavailable until the panorama direction spike is complete.

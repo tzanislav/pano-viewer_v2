@@ -20,6 +20,24 @@ export const reservePanoramaInput = z.object({
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   byteSize: z.number().int().positive()
 }).strict();
+export const reserveUnderlayInput = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  byteSize: z.number().int().positive()
+}).strict();
+export const createPlacementInput = z.object({
+  sceneId: z.string().uuid(),
+  pageId: z.string().uuid(),
+  x: z.number().finite().min(0).max(1000),
+  y: z.number().finite().min(0).max(1000),
+  expectedVersion: z.number().int().positive()
+}).strict();
+export const updatePlacementInput = z.object({
+  x: z.number().finite().min(0).max(1000),
+  y: z.number().finite().min(0).max(1000),
+  expectedVersion: z.number().int().positive()
+}).strict();
+export const deletePlacementInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
 
 export interface Tour {
   id: string;
@@ -93,6 +111,16 @@ export interface PanoramaAsset {
   updatedAt: string;
 }
 
+export interface UnderlayUpload {
+  id: string;
+  pageId: string;
+  fileName: string;
+  status: 'uploading' | 'processing' | 'ready' | 'error';
+  errorCode: string | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface TourEditorData {
   tour: Tour;
   pages: Page[];
@@ -101,4 +129,5 @@ export interface TourEditorData {
   connections: PlanConnection[];
   links: NavigationLink[];
   assets: PanoramaAsset[];
+  underlays: UnderlayUpload[];
 }

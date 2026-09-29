@@ -116,10 +116,15 @@ CREATE INDEX media_assets_filename_idx ON media_assets(tour_id, filename_key, st
 CREATE INDEX media_assets_retired_idx ON media_assets(retired_at);
 `;
 
+const underlaySchema = `
+ALTER TABLE media_assets ADD COLUMN underlay_page_id TEXT;
+CREATE INDEX media_assets_underlay_page_idx ON media_assets(tour_id, underlay_page_id, status);
+`;
+
 export function runMigrations(db: Database.Database): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number | null };
-  if (version.version !== null && version.version > 2) throw new Error('Database schema is newer than this app');
+  if (version.version !== null && version.version > 3) throw new Error('Database schema is newer than this app');
   if (version.version === null) {
     db.transaction(() => {
       db.exec(firstSchema);
@@ -130,6 +135,12 @@ export function runMigrations(db: Database.Database): void {
     db.transaction(() => {
       db.exec(uploadSchema);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)').run(new Date().toISOString());
+    })();
+  }
+  if (version.version === null || version.version <= 2) {
+    db.transaction(() => {
+      db.exec(underlaySchema);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)').run(new Date().toISOString());
     })();
   }
 }

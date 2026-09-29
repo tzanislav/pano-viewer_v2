@@ -35,4 +35,16 @@ export class TourService {
   deletePage(ownerUid: string, tourId: string, pageId: string, expectedVersion: number): TourEditorData {
     return this.repository.deletePage(ownerUid, tourId, pageId, expectedVersion);
   }
+
+  createPlacement(ownerUid: string, tourId: string, input: {
+    pageId: string; sceneId: string; x: number; y: number; expectedVersion: number;
+  }): TourEditorData { return this.repository.createPlacement(ownerUid, tourId, input); }
+
+  updatePlacement(ownerUid: string, tourId: string, placementId: string, input: {
+    x: number; y: number; expectedVersion: number;
+  }): TourEditorData { return this.repository.updatePlacement(ownerUid, tourId, placementId, input); }
+
+  deletePlacement(ownerUid: string, tourId: string, placementId: string, expectedVersion: number): TourEditorData {
+    return this.repository.deletePlacement(ownerUid, tourId, placementId, expectedVersion);
+  }
 }

@@ -24,9 +24,9 @@ Sign-in, Create account, and Forgot password screens use the same Manrope type, 
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Brand   ← All tours   Tour title       Save   Open viewer   Account │
 ├───────────────┬─────────────────────────────────────┬────────────────┤
-│ PHOTO LIBRARY │ Floor/page tabs   Place · Connect   │ INSPECTOR      │
+│ PHOTO LIBRARY │ Floor tabs      Upload underlay · × │ INSPECTOR      │
 │ Upload photos │ ┌─────────────────────────────────┐ │ Node details   │
-│ Search/list   │ │ Plan image or blank grid        │ │ Connections    │
+│ Search/list   │ │ Underlay image or blank grid    │ │ Create Link    │
 │ Thumbnails    │ │ Nodes and canvas connections    │ │ Delete         │
 │               │ └─────────────────────────────────┘ │                │
 └──────────────────────────────────────────────────────────────────────┘
@@ -37,11 +37,13 @@ The tour title, **All tours** link, save state, and **Open viewer** action live 
 Canvas conventions:
 
 - A plan is optional. A blank, lightly gridded page still supports node placement.
-- Each page has a visible name, an optional plan image, and a north indicator. The plan image is a locked background during node editing.
+- Each page has a visible name, an optional raster underlay, and a north indicator. Put a text-only **Upload underlay** link at the top right of the canvas toolbar. Once uploaded, the link becomes **Replace underlay** and a small **×** immediately to its right removes and deletes that page's underlay image. Give the × an accessible label naming the page. Keep the control outside the panning/zooming world so it stays visible. The underlay itself is a locked image item inside that world alongside nodes and lines, so all three move together when the viewport pans or zooms.
 - Ready photo cards use a taller, edge-to-edge panorama thumbnail. The extension-free original filename appears over the image with a left-side circular scene number. Canvas nodes use that same number alone inside a circle; the number comes from scene order and remains attached to the scene when its photo is replaced.
+- A ready photo without a node can be selected for canvas placement. Clicking it again clears the selection; clicking another available photo switches the selection. Clicking the canvas places its numbered node at the clicked page-space location and clears the photo selection. Mark placed photos in the canvas library and disable them for additional placement; do not hide them. The viewer link editor uses the same photos but allows any destination to be selected repeatedly for separate hotspots.
+- With no photo active, clicking a node selects it. The inspector shows the node's photo name, other nodes connected on the canvas, and custom viewer-created links as a separate list. **Create Link** arms the selected node; clicking another node on the same page draws one solid connection and creates its two sphere links. Distinct nodes may have many connections, but an already connected pair cannot get a second canvas line. Provide a cancel path for Create Link mode and clear visual feedback for an ineligible target.
 - Selected library photo and selected node use the orange accent; canvas-origin connections use solid lines. A viewer-origin link gets an outgoing-link badge on its source node, when one exists, and an optional dashed directional hint while selected. An unplaced source photo shows the same badge in the library and a link entry in the canvas side panel, without becoming a normal solid plan connection.
 - Link selection displays its destination, placement type (`From plan` or `Custom position`), reset-to-plan action, and delete action.
-- Node selection shows the photo thumbnail/name, floor, outgoing/incoming links, and delete. Deleting a node requires a confirmation that states its plan connections will be removed; the photo and its independent viewer-created links remain in the library and viewer.
+- Node selection shows the photo name, floor, connected nodes, outgoing/incoming viewer links, and delete. Deleting a node requires a confirmation that states its plan connections will be removed; the photo and its independent viewer-created links remain in the library and viewer.
 - Page deletion lives in the inspector. Disable it for the last page. Otherwise show a confirmation with the number of nodes that will be removed and explain that photos and independent viewer links remain. After success, select a remaining page.
 - Every editing action shows saving/saved/error state. Failed uploads and unsaved edits remain visible and retryable.
 - The photo library has a visible drag-and-drop target and a **Choose photos** button that accepts multiple files. It lists transfer progress per file, then shows a thumbnail for each ready photo. Files with the same visible name are processed in selection order so the last valid upload becomes the scene image. Failed or interrupted uploads show **Check upload** and **Remove** actions; an unsuccessful replacement does not hide the ready scene.

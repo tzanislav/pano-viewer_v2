@@ -21,6 +21,7 @@ export function apiConfig() {
     s3Endpoint: process.env.S3_ENDPOINT?.trim() || undefined,
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE?.trim() === 'true',
     maxPanoramaBytes: Number(process.env.MAX_PANORAMA_BYTES || 104857600),
+    maxUnderlayBytes: Number(process.env.MAX_PLAN_BYTES || 20971520),
     uploadUrlTtlSeconds: Number(process.env.S3_UPLOAD_URL_TTL_SECONDS || 600),
     readUrlTtlSeconds: Number(process.env.S3_READ_URL_TTL_SECONDS || 900)
   };
