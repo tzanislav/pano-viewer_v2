@@ -6,6 +6,7 @@ The steps below keep a usable vertical slice after each stage. Do the viewer spi
 
 - Fill the root [`.env.example`](../.env.example) using the [service setup guide](SERVICE_SETUP.md). Configure Vite `envDir` and Express environment loading to use the repository root.
 - Create the TypeScript workspace and React/Express apps in the [proposed structure](ARCHITECTURE.md).
+- Adopt the [code style and logging conventions](CODE_STYLE.md) from the first feature, including request IDs for API errors.
 - Add the shared tour/scene/page/link types, validation contracts, angle normalization, and plan-bearing function.
 - Add local design tokens copied from the reference frontend, with a small set of reusable buttons, tabs, panels, and status components.
 - Add Firebase email/password registration, sign-in, sign-out, password reset, and an auth-state provider. Add Firebase Admin token verification to Express and `owner_uid` to the tour schema. Follow the [authentication contract](AUTH.md).
@@ -18,7 +19,7 @@ The steps below keep a usable vertical slice after each stage. Do the viewer spi
 
 - Implement the PSV adapter and React mount/unmount lifecycle.
 - Load two sample panoramas as scenes and navigate by a directed link and by a custom thumbnail tray.
-- Confirm 2D links at the horizon and above/below it, then verify click placement and direct drag editing with pointer and touch input.
+- Confirm 2D links at the horizon and above/below it, then verify click placement and direct drag editing in viewer Edit mode with pointer and touch input.
 - Validate shared north calibration against cardinal plan directions. Keep a click-to-reposition control even if drag works.
 
 **Gate:** the [research spike checks](VIEWER_RESEARCH.md#first-implementation-spike) pass before depending on PSV-specific editor behavior.
@@ -26,9 +27,10 @@ The steps below keep a usable vertical slice after each stage. Do the viewer spi
 ## 3. Media and tour persistence
 
 - Implement tours, pages, presigned uploads, completion verification, thumbnail generation, ready/error states, and the viewer manifest.
+- In the photo library, support multi-select and drag-and-drop uploads. A repeated visible filename within a tour replaces the scene asset after validation while preserving its scene ID, placement, and links; invalid replacements retain the prior ready image.
 - Scope tour listing, editor data, viewer manifests, and signed upload/read URLs to the verified Firebase owner UID.
 - Persist and load every ready panorama as a scene, including unplaced photos.
-- Implement page and scene naming/order plus entry-scene selection.
+- Implement page and scene naming/order plus entry-scene selection. Keep at least one page per tour; deleting another page removes its placements and plan connections while retaining scenes and independent viewer links.
 
 **Verify:** upload several photos, reload as the same user, and see all ready scenes in the tray while an optional plan image remains attached to its page. Sign in as another user and confirm that none of the tour data or media URLs are available.
 
@@ -39,19 +41,20 @@ The steps below keep a usable vertical slice after each stage. Do the viewer spi
 - Add cross-page connection flow with manual positions for both directions and page portal indicators.
 - Add inspector actions for deleting a direction or entire connection. Make all graph changes transactional on the API.
 
-**Verify:** moving a node updates auto links in the panorama, changing pages preserves positions, and deleting a node removes only its plan connections.
+**Verify:** moving a node updates auto links in the panorama, changing pages preserves positions, deleting a node removes only its plan connections, and deleting a page removes its nodes without deleting their photos.
 
 ## 5. Panorama link editing and viewer mode
 
-- Add viewer-origin links from the panorama preview to **any ready uploaded photo**, including an unplaced one. Show link badges and a canvas side-panel entry without a solid connection.
-- Add custom yaw/pitch overrides for any link, drag/click controls, reset-to-plan where eligible, and save feedback.
-- Finish full-screen viewer mode, all-photo thumbnail tray, current scene labels, error/empty states, keyboard controls, and mobile layout.
+- Add an owner-only **Edit mode** toggle to the full-screen viewer. Keep navigation as the default state and authorize every link mutation on the API.
+- Add viewer-origin links from the sphere to **any ready uploaded photo**, including an unplaced one. Show link badges and a canvas side-panel entry without a solid connection.
+- Add custom azimuth/elevation (yaw/pitch) overrides for any link, direct drag handles with click/numeric alternatives, reset-to-plan where eligible, and save feedback.
+- Finish the all-photo thumbnail tray, current scene labels, error/empty states, keyboard controls, and mobile layout.
 
-**Verify:** a manual hotspot stays fixed after a node move or refresh; a viewer-created link to an unplaced photo is traversable; every ready photo is reachable through the tray.
+**Verify:** only the owner can enter Edit mode and save link changes; a manual hotspot stays fixed after a node move or refresh; a viewer-created link to an unplaced photo is traversable; every ready photo is reachable through the tray.
 
 ## 6. Stabilize for deployment
 
-- Review Firebase token/owner checks, upload limits, S3 CORS, backup/restore procedure, and structured error logging.
+- Review Firebase token/owner checks, upload limits, S3 CORS, backup/restore procedure, and log coverage/redaction.
 - Run a complete creator-to-viewer browser flow with real sample panoramas on desktop and mobile viewports, including reduced motion and keyboard use.
 - Keep the first deployment's viewer owner-only. If public sharing is added later, use a separate read-only access rule and test that editor mutations stay protected.
 

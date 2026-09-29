@@ -22,32 +22,33 @@ Sign-in, Create account, and Forgot password screens use the same Manrope type, 
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Brand / Tour title                        Save state   Preview viewer │
+│ Brand   ← All tours   Tour title       Save   Open viewer   Account │
 ├───────────────┬─────────────────────────────────────┬────────────────┤
 │ PHOTO LIBRARY │ Floor/page tabs   Place · Connect   │ INSPECTOR      │
 │ Upload photos │ ┌─────────────────────────────────┐ │ Node details   │
 │ Search/list   │ │ Plan image or blank grid        │ │ Connections    │
 │ Thumbnails    │ │ Nodes and canvas connections    │ │ Delete         │
 │               │ └─────────────────────────────────┘ │                │
-├───────────────┴─────────────────────────────────────┴────────────────┤
-│ 360 preview for selected photo · link handles · Add link             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The preview can be resized or expanded to a focused panel so dragging links has enough room. On smaller screens, Library, Plan, and Panorama become tabs/drawers rather than three squeezed columns. Keep selected node and current page visible when switching panels. The creator can select, connect, and delete by keyboard as well as pointer; dragging has a click-to-place alternative.
+The tour title, **All tours** link, save state, and **Open viewer** action live in the top navigation. The editor has no embedded 360 preview; the page canvas uses the available viewport height. On smaller screens, Library, Plan, and Inspector stack or become tabs/drawers rather than three squeezed columns. Keep the selected node and current page visible when switching panels. The creator can select, connect, and delete by keyboard as well as pointer; dragging has a click-to-place alternative.
 
 Canvas conventions:
 
 - A plan is optional. A blank, lightly gridded page still supports node placement.
 - Each page has a visible name, an optional plan image, and a north indicator. The plan image is a locked background during node editing.
+- Ready photo cards use a taller, edge-to-edge panorama thumbnail. The extension-free original filename appears over the image with a left-side circular scene number. Canvas nodes use that same number alone inside a circle; the number comes from scene order and remains attached to the scene when its photo is replaced.
 - Selected library photo and selected node use the orange accent; canvas-origin connections use solid lines. A viewer-origin link gets an outgoing-link badge on its source node, when one exists, and an optional dashed directional hint while selected. An unplaced source photo shows the same badge in the library and a link entry in the canvas side panel, without becoming a normal solid plan connection.
 - Link selection displays its destination, placement type (`From plan` or `Custom position`), reset-to-plan action, and delete action.
 - Node selection shows the photo thumbnail/name, floor, outgoing/incoming links, and delete. Deleting a node requires a confirmation that states its plan connections will be removed; the photo and its independent viewer-created links remain in the library and viewer.
+- Page deletion lives in the inspector. Disable it for the last page. Otherwise show a confirmation with the number of nodes that will be removed and explain that photos and independent viewer links remain. After success, select a remaining page.
 - Every editing action shows saving/saved/error state. Failed uploads and unsaved edits remain visible and retryable.
+- The photo library has a visible drag-and-drop target and a **Choose photos** button that accepts multiple files. It lists transfer progress per file, then shows a thumbnail for each ready photo. Files with the same visible name are processed in selection order so the last valid upload becomes the scene image. Failed or interrupted uploads show **Check upload** and **Remove** actions; an unsuccessful replacement does not hide the ready scene.
 
 ## Viewer layout
 
-The panorama fills the viewport. A compact top layer provides tour title, current scene/floor, and exit/back control. Links appear inside the panorama. A bottom thumbnail tray shows every scene in the walkthrough, highlights the current scene, and scrolls horizontally. Clicking a thumbnail changes scenes; the tray stays reachable on mobile. Controls should have visible focus states and descriptive labels.
+The panorama fills the viewport. A compact top layer provides tour title, current scene/floor, exit/back control, and an **Edit mode** toggle for the signed-in owner. Viewing is the default. Edit mode reveals link handles, Add link, save feedback, and click/numeric alternatives to dragging; the handles can be moved directly across the sphere to adjust azimuth and elevation. A bottom thumbnail tray shows every scene in the walkthrough, highlights the current scene, and scrolls horizontally. Clicking a thumbnail changes scenes; the tray stays reachable on mobile. Controls should have visible focus states and descriptive labels.
 
 The viewer should start on the tour's chosen entry scene, handle an isolated scene with no links, and present a clear fallback if an image fails to load. The tray is scene based: every ready uploaded 360 photo appears once, including photos with no canvas node. Unplaced photos have an `Unplaced` location label. Pending or failed uploads remain visible in the editor library but cannot be opened in the viewer until ready.
 

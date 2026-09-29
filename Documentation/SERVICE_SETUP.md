@@ -1,6 +1,6 @@
 # Service access and environment setup
 
-This guide prepares the values for the planned React/Vite app and Express API. The repository currently contains documentation and configuration templates; there is no application process yet to test these credentials end to end. Create the external services and fill a local `.env` now, then validate the connections during the first build stage.
+This guide prepares the values for the React/Vite app and Express API. Create the external services and fill a local `.env` before running the apps. Multi-photo upload now uses private S3 objects, so the bucket policy and CORS settings below are required for the upload flow.
 
 ## 1. Create the local environment file
 
@@ -69,7 +69,7 @@ SQLite needs no account or cloud service. Leave `DATABASE_PATH=./data/pano-viewe
 
 `PORT=3001`, `WEB_ORIGIN=http://localhost:5173`, and `VITE_API_BASE_URL=http://localhost:3001/api` are the planned local defaults. At deployment, set the web origin and browser API URL to the actual HTTPS addresses. Express CORS will allow the configured web origin. If web and API share an origin in production, the browser API URL may be `/api`.
 
-The size limits and URL lifetimes in `.env.example` are initial defaults, not provider-issued values. The API will enforce declared and actual upload sizes and refresh media URLs during long viewer sessions.
+The size limits and URL lifetimes in `.env.example` are initial defaults, not provider-issued values. The API enforces declared and actual upload sizes. The photo library refreshes signed thumbnail URLs during long editing sessions; the viewer will refresh original image URLs when panorama rendering is added.
 
 ## Values checklist
 
@@ -85,4 +85,4 @@ The size limits and URL lifetimes in `.env.example` are initial defaults, not pr
 | `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` | Only for an S3-compatible local service. |
 | `VITE_FIREBASE_AUTH_EMULATOR_URL`, `FIREBASE_AUTH_EMULATOR_HOST` | Only for local Firebase Auth emulator use. |
 
-Once app code exists, the first integration check is: sign in, create a tour, request a signed upload URL, upload one panorama, reload the viewer manifest, and confirm another Firebase user cannot obtain that tour or its media URLs. This is tracked in the [build plan](BUILD_PLAN.md).
+For the first browser integration check, sign in, create a tour, drop two 2:1 panoramas into the photo library, and confirm both show ready thumbnails after reload. Upload a revised image with the same visible name and confirm it replaces only that scene. Try a malformed image and confirm that any earlier ready image remains. Confirm another Firebase user cannot obtain the tour or its media URLs. Interactive viewer rendering is tracked in the [build plan](BUILD_PLAN.md).

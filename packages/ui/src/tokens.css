@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  color-scheme: light;
+  font-family: 'Manrope', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+  --color-canvas: #ffffff;
+  --color-surface-muted: #f2f1ed;
+  --color-ink: #101010;
+  --color-text: #2b2a28;
+  --color-text-muted: #696762;
+  --color-line: #d6d4ce;
+  --color-success: #16733a;
+  --color-danger: #9a351d;
+  --color-accent: #d9682f;
+  --color-accent-hover: #bd5522;
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --page-gutter: clamp(1.25rem, 4.7vw, 5.5rem);
+}

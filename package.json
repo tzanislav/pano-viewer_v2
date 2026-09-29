@@ -1,0 +1,24 @@
+{
+  "name": "pano-viewer",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @pano/api",
+    "dev:web": "npm run dev -w @pano/web",
+    "build": "npm run build -w @pano/web",
+    "typecheck": "tsc --noEmit -p packages/domain && tsc --noEmit -p apps/api && tsc --noEmit -p apps/web",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^5.0.2"
+  }
+}

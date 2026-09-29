@@ -12,7 +12,7 @@ Use **Firebase Authentication** in a new Firebase project for this app, with use
 4. Before an API request, call the signed-in user's `getIdToken()` and send `Authorization: Bearer <ID token>` over HTTPS. Obtain a token for each request through one shared API client so refresh is handled consistently.
 5. Protect creator and viewer routes in React for navigation and user feedback. The API remains the authority; a client route guard alone does not grant access. A signed-out user opening a private tour is sent to Sign in and returned to the requested route afterward.
 
-The initial viewer is read-only but private to the tour owner. A public share-link flow is a separate later feature with its own limited read permission.
+The initial viewer is private to the tour owner. Its default state is navigation; the owner can toggle Edit mode to adjust links on their own scenes. A public share-link flow is a separate later feature with read permission only and no Edit mode.
 
 ## Express flow
 
@@ -36,6 +36,6 @@ Use the root [`.env.example`](../.env.example) and [service setup guide](SERVICE
 - A newly registered user can create a tour and reopen it after a browser refresh.
 - A signed-out request to any tour, manifest, or upload endpoint receives `401`.
 - User B cannot read, edit, upload to, or obtain media URLs for User A's tour, even with its ID.
-- A signed-in owner can switch between creator and viewer routes; the viewer cannot call editing commands through its UI.
+- A signed-in owner can switch between creator and viewer routes and use viewer Edit mode to adjust links. The API verifies ownership for every edit regardless of the toggle state.
 - Sign-out removes access in the browser; a separately revoked or disabled account is rejected by Express. Existing signed S3 URLs remain valid until their short expiry.
 - Password reset uses Firebase's email flow and does not change tour ownership.
