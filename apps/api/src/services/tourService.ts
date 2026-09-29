@@ -9,6 +9,12 @@ export class TourService {
   list(ownerUid: string): Tour[] { return this.repository.list(ownerUid); }
   get(ownerUid: string, tourId: string): TourEditorData { return this.repository.get(ownerUid, tourId); }
   create(ownerUid: string, title: string): TourEditorData { return this.repository.create(ownerUid, title); }
+  storageKeysForDelete(ownerUid: string, tourId: string, expectedVersion: number): string[] {
+    return this.repository.storageKeysForDelete(ownerUid, tourId, expectedVersion);
+  }
+  deleteTour(ownerUid: string, tourId: string, expectedVersion: number): void {
+    this.repository.deleteTour(ownerUid, tourId, expectedVersion);
+  }
 
   updateTour(ownerUid: string, tourId: string, input: {
     expectedVersion: number; title?: string; defaultNorthYawDeg?: number; entrySceneId?: string | null;
@@ -46,5 +52,41 @@ export class TourService {
 
   deletePlacement(ownerUid: string, tourId: string, placementId: string, expectedVersion: number): TourEditorData {
     return this.repository.deletePlacement(ownerUid, tourId, placementId, expectedVersion);
+  }
+
+  deleteScene(ownerUid: string, tourId: string, sceneId: string, expectedVersion: number): TourEditorData {
+    return this.repository.deleteScene(ownerUid, tourId, sceneId, expectedVersion);
+  }
+
+  createPlanConnection(ownerUid: string, tourId: string, input: {
+    placementAId: string; placementBId: string; expectedVersion: number;
+  }): TourEditorData { return this.repository.createPlanConnection(ownerUid, tourId, input); }
+
+  deletePlanConnection(ownerUid: string, tourId: string, connectionId: string, expectedVersion: number): TourEditorData {
+    return this.repository.deletePlanConnection(ownerUid, tourId, connectionId, expectedVersion);
+  }
+
+  deletePlanDirection(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    return this.repository.deletePlanDirection(ownerUid, tourId, linkId, expectedVersion);
+  }
+
+  resetPlanDirection(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    return this.repository.resetPlanDirection(ownerUid, tourId, linkId, expectedVersion);
+  }
+
+  createViewerLink(ownerUid: string, tourId: string, input: {
+    sourceSceneId: string; targetSceneId: string; yawDeg: number; pitchDeg: number; expectedVersion: number;
+  }): TourEditorData {
+    return this.repository.createViewerLink(ownerUid, tourId, { ...input, yawDeg: normalize360(input.yawDeg) });
+  }
+
+  updateViewerLink(ownerUid: string, tourId: string, linkId: string, input: {
+    yawDeg: number; pitchDeg: number; expectedVersion: number;
+  }): TourEditorData {
+    return this.repository.updateViewerLink(ownerUid, tourId, linkId, { ...input, yawDeg: normalize360(input.yawDeg) });
+  }
+
+  deleteViewerLink(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    return this.repository.deleteViewerLink(ownerUid, tourId, linkId, expectedVersion);
   }
 }

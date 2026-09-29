@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto';
 import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { ZodError } from 'zod';
-import { createPageInput, createPlacementInput, createTourInput, deletePageInput, deletePlacementInput,
-  reservePanoramaInput, reserveUnderlayInput, updatePageInput, updatePlacementInput, updateTourInput } from '@pano/domain';
+import { createPageInput, createPlacementInput, createPlanConnectionInput, createTourInput, createViewerLinkInput,
+  deletePageInput, deletePlacementInput, deletePlanConnectionInput, deleteSceneInput, deleteTourInput,
+  reservePanoramaInput, reserveUnderlayInput, updatePageInput, updatePlacementInput, updateTourInput,
+  updateViewerLinkInput } from '@pano/domain';
 import type { VerifyToken } from './auth/firebaseAdmin.js';
 import { AppError } from './errors.js';
 import { log } from './logging.js';
 import { TourService } from './services/tourService.js';
 import { MediaService } from './services/mediaService.js';
 import { UnderlayService } from './services/underlayService.js';
+import { ViewerService } from './services/viewerService.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -21,6 +24,7 @@ declare module 'express-serve-static-core' {
 export function createApp(tours: TourService, media: MediaService, underlays: UnderlayService,
   verifyToken: VerifyToken, webOrigin: string) {
   const app = express();
+  const viewer = new ViewerService(tours, media);
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     req.requestId = randomUUID();
@@ -55,11 +59,22 @@ export function createApp(tours: TourService, media: MediaService, underlays: Un
   app.get('/api/tours/:id', (req, res) => {
     res.json(tours.get(req.ownerUid, req.params.id));
   });
+  app.get('/api/tours/:id/viewer-manifest', async (req, res) => {
+    res.json(await viewer.manifest(req.ownerUid, req.params.id));
+  });
   app.patch('/api/tours/:id', (req, res) => {
     const input = updateTourInput.parse(req.body);
     const data = tours.updateTour(req.ownerUid, req.params.id, input);
     log('info', 'tour.update', { requestId: req.requestId, outcome: 'success', tourId: data.tour.id });
     res.json(data);
+  });
+  app.delete('/api/tours/:id', async (req, res) => {
+    const { expectedVersion } = deleteTourInput.parse(req.body);
+    const keys = tours.storageKeysForDelete(req.ownerUid, req.params.id, expectedVersion);
+    await media.deleteObjects(keys);
+    tours.deleteTour(req.ownerUid, req.params.id, expectedVersion);
+    log('info', 'tour.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id });
+    res.status(204).end();
   });
   app.post('/api/tours/:id/pages', (req, res) => {
     const input = createPageInput.parse(req.body);
@@ -96,6 +111,56 @@ export function createApp(tours: TourService, media: MediaService, underlays: Un
     const { expectedVersion } = deletePlacementInput.parse(req.body);
     const data = tours.deletePlacement(req.ownerUid, req.params.id, req.params.placementId, expectedVersion);
     log('info', 'placement.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, placementId: req.params.placementId });
+    res.json(data);
+  });
+  app.delete('/api/tours/:id/scenes/:sceneId', async (req, res) => {
+    const { expectedVersion } = deleteSceneInput.parse(req.body);
+    const data = tours.deleteScene(req.ownerUid, req.params.id, req.params.sceneId, expectedVersion);
+    await media.cleanupRetired();
+    log('info', 'scene.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, sceneId: req.params.sceneId });
+    res.json(data);
+  });
+  app.post('/api/tours/:id/connections', (req, res) => {
+    const input = createPlanConnectionInput.parse(req.body);
+    const data = tours.createPlanConnection(req.ownerUid, req.params.id, input);
+    log('info', 'connection.create', { requestId: req.requestId, outcome: 'success', tourId: req.params.id });
+    res.status(201).json(data);
+  });
+  app.delete('/api/tours/:id/connections/:connectionId', (req, res) => {
+    const { expectedVersion } = deletePlanConnectionInput.parse(req.body);
+    const data = tours.deletePlanConnection(req.ownerUid, req.params.id, req.params.connectionId, expectedVersion);
+    log('info', 'connection.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id });
+    res.json(data);
+  });
+  app.delete('/api/tours/:id/connections/directions/:linkId', (req, res) => {
+    const { expectedVersion } = deletePlanConnectionInput.parse(req.body);
+    const data = tours.deletePlanDirection(req.ownerUid, req.params.id, req.params.linkId, expectedVersion);
+    log('info', 'connection.direction.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id });
+    res.json(data);
+  });
+  app.post('/api/tours/:id/links/:linkId/reset-to-plan', (req, res) => {
+    const { expectedVersion } = deletePlanConnectionInput.parse(req.body);
+    const data = tours.resetPlanDirection(req.ownerUid, req.params.id, req.params.linkId, expectedVersion);
+    log('info', 'link.reset', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, linkId: req.params.linkId });
+    res.json(data);
+  });
+  app.post('/api/tours/:id/links', (req, res) => {
+    const input = createViewerLinkInput.parse(req.body);
+    const data = tours.createViewerLink(req.ownerUid, req.params.id, input);
+    log('info', 'link.create', { requestId: req.requestId, outcome: 'success', tourId: req.params.id,
+      sceneId: input.sourceSceneId });
+    res.status(201).json(data);
+  });
+  app.patch('/api/tours/:id/links/:linkId', (req, res) => {
+    const input = updateViewerLinkInput.parse(req.body);
+    const data = tours.updateViewerLink(req.ownerUid, req.params.id, req.params.linkId, input);
+    log('info', 'link.update', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, linkId: req.params.linkId });
+    res.json(data);
+  });
+  app.delete('/api/tours/:id/links/:linkId', (req, res) => {
+    const { expectedVersion } = deletePlacementInput.parse(req.body);
+    const data = tours.deleteViewerLink(req.ownerUid, req.params.id, req.params.linkId, expectedVersion);
+    log('info', 'link.delete', { requestId: req.requestId, outcome: 'success', tourId: req.params.id, linkId: req.params.linkId });
     res.json(data);
   });
   app.post('/api/tours/:id/pages/:pageId/underlay/uploads', async (req, res) => {

@@ -1,11 +1,22 @@
-import type { PanoramaAsset, Tour, TourEditorData, UnderlayUpload } from '@pano/domain';
+import type { PanoramaAsset, Tour, TourEditorData, UnderlayUpload, ViewerManifest } from '@pano/domain';
 import { apiRequest } from '../../app/apiClient';
 
 export const tourApi = {
   list: () => apiRequest<{ tours: Tour[] }>('/tours'),
   create: (title: string) => apiRequest<TourEditorData>('/tours', { method: 'POST', body: JSON.stringify({ title }) }),
   get: (id: string) => apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}`),
-  update: (id: string, body: { expectedVersion: number; title?: string; defaultNorthYawDeg?: number }) =>
+  delete: (id: string, expectedVersion: number) =>
+    apiRequest<void>(`/tours/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion }) }),
+  viewerManifest: (id: string) => apiRequest<ViewerManifest>(`/tours/${encodeURIComponent(id)}/viewer-manifest`),
+  createViewerLink: (id: string, body: { sourceSceneId: string; targetSceneId: string; yawDeg: number; pitchDeg: number; expectedVersion: number }) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/links`, { method: 'POST', body: JSON.stringify(body) }),
+  updateViewerLink: (id: string, linkId: string, body: { yawDeg: number; pitchDeg: number; expectedVersion: number }) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/links/${encodeURIComponent(linkId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteViewerLink: (id: string, linkId: string, expectedVersion: number) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/links/${encodeURIComponent(linkId)}`, {
+      method: 'DELETE', body: JSON.stringify({ expectedVersion })
+    }),
+  update: (id: string, body: { expectedVersion: number; title?: string; defaultNorthYawDeg?: number; entrySceneId?: string | null }) =>
     apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createPage: (id: string, body: { expectedVersion: number; name: string }) =>
     apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/pages`, { method: 'POST', body: JSON.stringify(body) }),
@@ -44,5 +55,23 @@ export const tourApi = {
   deletePlacement: (id: string, placementId: string, expectedVersion: number) =>
     apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/placements/${encodeURIComponent(placementId)}`, {
       method: 'DELETE', body: JSON.stringify({ expectedVersion })
+    }),
+  deleteScene: (id: string, sceneId: string, expectedVersion: number) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/scenes/${encodeURIComponent(sceneId)}`, {
+      method: 'DELETE', body: JSON.stringify({ expectedVersion })
+    }),
+  createPlanConnection: (id: string, body: { placementAId: string; placementBId: string; expectedVersion: number }) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/connections`, { method: 'POST', body: JSON.stringify(body) }),
+  deletePlanConnection: (id: string, connectionId: string, expectedVersion: number) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/connections/${encodeURIComponent(connectionId)}`, {
+      method: 'DELETE', body: JSON.stringify({ expectedVersion })
+    }),
+  deletePlanDirection: (id: string, linkId: string, expectedVersion: number) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/connections/directions/${encodeURIComponent(linkId)}`, {
+      method: 'DELETE', body: JSON.stringify({ expectedVersion })
+    }),
+  resetPlanDirection: (id: string, linkId: string, expectedVersion: number) =>
+    apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/links/${encodeURIComponent(linkId)}/reset-to-plan`, {
+      method: 'POST', body: JSON.stringify({ expectedVersion })
     })
 };

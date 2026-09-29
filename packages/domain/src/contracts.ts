@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const name = z.string().trim().min(1).max(120);
 export const createTourInput = z.object({ title: name }).strict();
+export const deleteTourInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
 export const updateTourInput = z.object({
   expectedVersion: z.number().int().positive(),
   title: name.optional(),
@@ -38,6 +39,21 @@ export const updatePlacementInput = z.object({
   expectedVersion: z.number().int().positive()
 }).strict();
 export const deletePlacementInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
+export const deleteSceneInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
+export const createPlanConnectionInput = z.object({
+  placementAId: z.string().uuid(), placementBId: z.string().uuid(),
+  expectedVersion: z.number().int().positive()
+}).strict();
+export const deletePlanConnectionInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
+export const createViewerLinkInput = z.object({
+  sourceSceneId: z.string().uuid(), targetSceneId: z.string().uuid(),
+  yawDeg: z.number().finite(), pitchDeg: z.number().finite().min(-90).max(90),
+  expectedVersion: z.number().int().positive()
+}).strict();
+export const updateViewerLinkInput = z.object({
+  yawDeg: z.number().finite(), pitchDeg: z.number().finite().min(-90).max(90),
+  expectedVersion: z.number().int().positive()
+}).strict();
 
 export interface Tour {
   id: string;
@@ -130,4 +146,29 @@ export interface TourEditorData {
   links: NavigationLink[];
   assets: PanoramaAsset[];
   underlays: UnderlayUpload[];
+}
+
+export interface ViewerLink {
+  id: string;
+  targetSceneId: string;
+  yawDeg: number;
+  pitchDeg: number;
+  positionMode: NavigationLink['positionMode'];
+}
+
+export interface ViewerScene {
+  id: string;
+  name: string;
+  pageName: string | null;
+  panoramaUrl: string;
+  thumbnailUrl: string;
+  links: ViewerLink[];
+}
+
+export interface ViewerManifest {
+  tourId: string;
+  title: string;
+  entrySceneId: string | null;
+  expiresAt: string;
+  scenes: ViewerScene[];
 }

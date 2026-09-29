@@ -2,7 +2,7 @@
 
 The steps below keep a usable vertical slice after each stage. The page underlay and shared canvas coordinates can be built before viewer integration; complete the viewer spike before depending on sphere hotspot position and orientation for plan links.
 
-**Current slice:** page-scoped underlay upload/replacement/removal, shared page-space pan and zoom, and one numbered canvas node per photo are implemented. The next technical gate is the viewer spike in step 2; **Create Link** remains unavailable until hotspot direction and placement are verified.
+**Current slice:** page-scoped underlays, shared page-space pan and zoom, one numbered canvas node per photo, same-page plan connections, and an owner-only panorama viewer are implemented. The viewer has an all-photo tray, directed links, and Edit mode for adding and positioning links. Automated direction, authorization, and persistence checks pass. The viewer rendering and drag interaction still need the owner's desktop and mobile visual pass.
 
 ## 1. Repository and domain foundation
 
@@ -26,11 +26,13 @@ The steps below keep a usable vertical slice after each stage. The page underlay
 
 **Gate:** the [research spike checks](VIEWER_RESEARCH.md#first-implementation-spike) pass before depending on PSV-specific editor behavior.
 
+**Implementation status (2026-09-29):** PSV mounts behind `PanoramaAdapter` and is destroyed on unmount. The API signs a viewer manifest for ready scenes, and the custom tray opens placed or unplaced photos. `positionMode: 'manual'` and `renderMode: '2d'` display resolved link angles. Owner Edit mode uses the same numbered photo cards as the canvas editor to select a link destination, then places independent links at click yaw/pitch and adjusts them through drag handles, click-to-reposition, or numeric inputs. Same-page canvas connections now create two automatic links; either can be manually positioned and reset to the plan bearing. The manifest refreshes before signed URLs expire. Automated direction fixtures pass. Visual verification of actual panorama bearings, elevated hotspots, drag on touch, and WebGL cleanup remains open.
+
 ## 3. Media and tour persistence
 
-- Implement tours, pages, presigned uploads, completion verification, thumbnail generation, ready/error states, and the viewer manifest.
+- Implement tours, pages, presigned uploads, completion verification, thumbnail generation, ready/error states, and the viewer manifest. (Implemented.)
 - In the photo library, support multi-select and drag-and-drop uploads. A repeated visible filename within a tour replaces the scene asset after validation while preserving its scene ID, placement, and links; invalid replacements retain the prior ready image.
-- Scope tour listing, editor data, viewer manifests, and signed upload/read URLs to the verified Firebase owner UID.
+- Scope tour listing, editor data, viewer manifests, and signed upload/read URLs to the verified Firebase owner UID. (Implemented.)
 - Persist and load every ready panorama as a scene, including unplaced photos.
 - Implement page-scoped underlay upload, replacement, signed read, and removal using `plan` assets. Keep the old underlay visible until a replacement validates; removing it clears the page reference and deletes the stored image without moving nodes.
 - Implement page and scene naming/order plus entry-scene selection. Keep at least one page per tour; deleting another page removes its placements and plan connections, retires its underlay, and retains scenes and independent viewer links.
@@ -41,18 +43,18 @@ The steps below keep a usable vertical slice after each stage. The page underlay
 
 - Render each page's underlay as an image inside a shared page-space world with nodes and connection paths. Build pan/zoom and invert the viewport transform for click placement; keep underlay controls in the fixed top-right canvas toolbar. Lock independent underlay resizing/movement in this slice.
 - In canvas mode, select an unplaced library photo, click the page to place its one numbered node, and clear the selection. Clicking the active photo toggles it off; clicking another available photo switches it. A placed photo remains visible but cannot be selected for another canvas node.
-- With no photo active, select a node and show its name, plan-connected nodes, and independent viewer links in the inspector. **Create Link** then accepts a different node on the same page. Reject a duplicate unordered pair; allow each node to connect to many distinct nodes.
-- Add same-page plan connections that create two directed links, with automatic horizon positions derived from canvas bearings. Keep viewer-created links separate even when they share a source and target with a plan connection.
+- With no photo active, select a node and show its name, plan-connected nodes, and independent viewer links in the inspector. **Create Link** then accepts a different node on the same page. Reject a duplicate unordered pair; allow each node to connect to many distinct nodes. (Implemented.)
+- Add same-page plan connections that create two directed links, with automatic horizon positions derived from canvas bearings. Keep viewer-created links separate even when they share a source and target with a plan connection. (Implemented.)
 - Add cross-page connection flow with manual positions for both directions and page portal indicators.
-- Add inspector actions for deleting a direction or entire connection. Make all graph changes transactional on the API.
+- Add inspector actions for deleting a direction or entire connection. Make all graph changes transactional on the API. (Implemented for same-page connections.)
 
 **Verify:** an underlay belongs to one page, its remove control deletes the stored image but retains nodes, and pan/zoom keeps underlay, nodes, and lines aligned. A placed photo cannot create a second canvas node; a node can connect to several different nodes but not duplicate a pair. Moving a node updates auto links in the panorama, and deleting a node removes only its plan connections.
 
 ## 5. Panorama link editing and viewer mode
 
 - Add an owner-only **Edit mode** toggle to the full-screen viewer. Keep navigation as the default state and authorize every link mutation on the API.
-- Add viewer-origin links from the sphere to **any ready uploaded photo**, including an unplaced one. Allow repeated hotspots to the same destination photo, each with its own link ID and position. Migrate the existing directed source/target uniqueness constraint before this step. Show link badges and a canvas side-panel entry without a solid connection.
-- Add custom azimuth/elevation (yaw/pitch) overrides for any link, direct drag handles with click/numeric alternatives, reset-to-plan where eligible, and save feedback.
+- Add viewer-origin links from the sphere to **any ready uploaded photo**, including an unplaced one. Allow repeated hotspots to the same destination photo, each with its own link ID and position. Migrate the existing directed source/target uniqueness constraint before this step. Show link badges and a canvas side-panel entry without a solid connection. (Viewer link creation and migration are implemented; canvas badges remain.)
+- Add custom azimuth/elevation (yaw/pitch) overrides for any link, direct drag handles with click/numeric alternatives, reset-to-plan where eligible, and save feedback. (Implemented.)
 - Finish the all-photo thumbnail tray, current scene labels, error/empty states, keyboard controls, and mobile layout.
 
 **Verify:** only the owner can enter Edit mode and save link changes; a manual hotspot stays fixed after a node move or refresh; a viewer-created link to an unplaced photo is traversable; every ready photo is reachable through the tray.

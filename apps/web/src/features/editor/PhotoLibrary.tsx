@@ -1,184 +1,45 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { photoNameKey, photoNameStem, sceneDisplayNumbers, type PanoramaAsset, type Scene } from '@pano/domain';
-import { errorMessage } from '../../app/apiClient';
-import { tourApi } from '../tours/tourApi';
-import { putSignedFile } from '../tours/putSignedFile';
+import type { PanoramaAsset, Scene } from '@pano/domain';
+import { Link } from 'react-router-dom';
+import { PhotoCards, readyPhotoCards } from '../tours/PhotoCards';
 
-type UploadItem = {
-  id: number;
-  file: File;
-  nameKey: string;
-  status: 'queued' | 'uploading' | 'processing' | 'error';
-  progress: number;
-  error?: string;
-};
-
-const mimeByExtension: Record<string, string> = {
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp'
-};
-
-function fileMime(file: File): string {
-  return file.type || mimeByExtension[file.name.split('.').at(-1)?.toLowerCase() || ''] || '';
-}
-
-export function PhotoLibrary({ tourId, assets, scenes, placedSceneIds, selectedSceneId, onSelect, onChanged }: {
+export function PhotoLibrary({ tourId, assets, scenes, placedSceneIds, selectedSceneId,
+  selectedNodeSceneId, outgoingSceneIds, unreachableNodeLabels, startSceneLabel, onSelect }: {
   tourId: string; assets: PanoramaAsset[]; scenes: Scene[]; placedSceneIds: ReadonlySet<string>;
-  selectedSceneId: string | null; onSelect: (sceneId: string | null) => void; onChanged: () => Promise<void>;
+  selectedSceneId: string | null; selectedNodeSceneId: string | null; outgoingSceneIds: ReadonlySet<string>;
+  unreachableNodeLabels: string[]; startSceneLabel: string;
+  onSelect: (sceneId: string | null) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const nextId = useRef(0);
-  const nameChains = useRef(new Map<string, Promise<void>>());
-  const [dragging, setDragging] = useState(false);
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [actionError, setActionError] = useState('');
-
-  function changeItem(id: number, update: Partial<UploadItem>) {
-    setItems(current => current.map(item => item.id === id ? { ...item, ...update } : item));
+  const readyCards = readyPhotoCards(assets, scenes);
+  const warnings = new Map<string, 'Unplaced' | 'Isolated'>();
+  let unplacedCount = 0;
+  let isolatedCount = 0;
+  for (const card of readyCards) {
+    if (!card.sceneId) continue;
+    if (!placedSceneIds.has(card.sceneId)) { warnings.set(card.sceneId, 'Unplaced'); unplacedCount++; }
+    else if (!outgoingSceneIds.has(card.sceneId)) { warnings.set(card.sceneId, 'Isolated'); isolatedCount++; }
   }
+  const warningCount = unreachableNodeLabels.length + unplacedCount + isolatedCount;
 
-  async function upload(item: UploadItem) {
-    let assetId: string | undefined;
-    let transferred = false;
-    try {
-      const mimeType = fileMime(item.file);
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
-        throw new Error('Choose a JPEG, PNG, or WebP image.');
-      }
-      changeItem(item.id, { status: 'uploading' });
-      const reserved = await tourApi.reserveUpload(tourId, {
-        fileName: item.file.name, mimeType, byteSize: item.file.size
-      });
-      assetId = reserved.asset.id;
-      await onChanged();
-      await putSignedFile(reserved.uploadUrl, item.file, mimeType, progress => changeItem(item.id, { progress }));
-      transferred = true;
-      changeItem(item.id, { status: 'processing', progress: 100 });
-      await tourApi.completeUpload(tourId, assetId);
-      await onChanged();
-      setItems(current => current.filter(candidate => candidate.id !== item.id));
-    } catch (cause) {
-      if (assetId && !transferred) {
-        try { await tourApi.cancelUpload(tourId, assetId); } catch { /* Retained upload can be removed from the library. */ }
-      }
-      changeItem(item.id, { status: 'error', error: errorMessage(cause) });
-      await onChanged().catch(() => {});
-    }
-  }
-
-  function enqueue(files: File[]) {
-    if (!files.length) return;
-    setActionError('');
-    for (const file of files) {
-      let nameKey: string;
-      try { nameKey = photoNameKey(file.name); }
-      catch { nameKey = file.name.toLowerCase(); }
-      const item: UploadItem = { id: ++nextId.current, file, nameKey, status: 'queued', progress: 0 };
-      setItems(current => [...current, item]);
-      const previous = nameChains.current.get(nameKey) || Promise.resolve();
-      const task = previous.catch(() => {}).then(() => upload(item));
-      nameChains.current.set(nameKey, task);
-      void task.finally(() => {
-        if (nameChains.current.get(nameKey) === task) nameChains.current.delete(nameKey);
-      });
-    }
-  }
-
-  function handleInput(event: ChangeEvent<HTMLInputElement>) {
-    enqueue(Array.from(event.target.files || []));
-    event.target.value = '';
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragging(false);
-    enqueue(Array.from(event.dataTransfer.files));
-  }
-
-  async function removePending(assetId: string) {
-    setActionError('');
-    try {
-      await tourApi.cancelUpload(tourId, assetId);
-      await onChanged();
-    } catch (cause) { setActionError(errorMessage(cause)); }
-  }
-
-  async function finishPending(assetId: string) {
-    setActionError('');
-    try {
-      await tourApi.completeUpload(tourId, assetId);
-      await onChanged();
-    } catch (cause) {
-      setActionError(errorMessage(cause));
-      await onChanged().catch(() => {});
-    }
-  }
-
-  const ready = assets.filter(asset => asset.status === 'ready');
-  const sceneNumbers = sceneDisplayNumbers(scenes);
-  const readyCards = ready.map((asset, index) => {
-    const scene = scenes.find(candidate => candidate.panoramaAssetId === asset.id);
-    return { asset, sceneId: scene?.id, number: scene ? sceneNumbers.get(scene.id) ?? scenes.length + index + 1 : scenes.length + index + 1 };
-  }).sort((a, b) => a.number - b.number);
-  const pending = assets.filter(asset => asset.status !== 'ready' && !items.some(item => item.nameKey === asset.filenameKey && item.status !== 'error'));
   return <div className="photo-library">
-    <div className={`photo-drop-zone${dragging ? ' photo-drop-zone--active' : ''}`}
-      onDragEnter={event => { event.preventDefault(); setDragging(true); }}
-      onDragOver={event => event.preventDefault()}
-      onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
-      onDrop={handleDrop}>
-      <input ref={inputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple onChange={handleInput} aria-label="Choose panorama photos" />
-      <p>Drag and drop 360 photos here</p>
-      <button type="button" className="button button--secondary" onClick={() => inputRef.current?.click()}>Choose photos</button>
-      <small>JPEG, PNG or WebP · 2:1 panorama · multiple files</small>
-    </div>
-    <p className="photo-upload-note">Uploading a photo with the same name replaces it in this tour. Its placement and links stay in place.</p>
-    {actionError && <p className="status" data-tone="error" role="alert">{actionError}</p>}
-    {items.length > 0 && <div className="photo-list" aria-label="Upload progress">{items.map(item =>
-      <div className="photo-upload-row" key={item.id}>
-        <strong title={item.file.name}>{item.file.name}</strong>
-        <span className="muted">{item.status === 'error' ? item.error : item.status === 'uploading' ? `Uploading ${item.progress}%` : item.status === 'processing' ? 'Checking photo…' : 'Waiting…'}</span>
-        {item.status === 'uploading' && <progress value={item.progress} max={100} aria-label={`${item.file.name} upload progress`} />}
-        {item.status === 'error' && <button className="text-button" onClick={() => { setItems(current => current.filter(candidate => candidate.id !== item.id)); enqueue([item.file]); }}>Try again</button>}
-      </div>
-    )}</div>}
-    {pending.length > 0 && <div className="photo-list" aria-label="Pending photos">{pending.map(asset =>
-      <div className="photo-upload-row" key={asset.id}>
-        <strong title={asset.fileName}>{asset.fileName}</strong>
-        <span className="muted">{asset.status === 'error' ? `Upload error${asset.errorCode ? `: ${asset.errorCode}` : ''}` : asset.status === 'processing' ? 'Processing interrupted' : 'Upload interrupted'}</span>
-        <div className="photo-row-actions"><button className="text-button" onClick={() => void finishPending(asset.id)}>Check upload</button><button className="text-button" onClick={() => void removePending(asset.id)}>Remove</button></div>
-      </div>
-    )}</div>}
-    {readyCards.length > 0 ? <ol className="photo-list photo-ready-list" aria-label="Uploaded panoramas">{readyCards.map(({ asset, sceneId, number }) =>
-      <li className="photo-card" key={asset.id} data-selected={selectedSceneId === sceneId || undefined}>
-        <button className="photo-card-action" type="button" disabled={!sceneId || placedSceneIds.has(sceneId)}
-          aria-pressed={selectedSceneId === sceneId}
-          aria-label={`${photoNameStem(asset.fileName)}, photo ${number}${sceneId && placedSceneIds.has(sceneId) ? ', already placed' : ''}`}
-          onClick={() => { if (sceneId) onSelect(selectedSceneId === sceneId ? null : sceneId); }}>
-          <PhotoThumbnail tourId={tourId} assetId={asset.id} alt="" />
-          <span className="photo-card-number" aria-hidden="true">{number}</span>
-          <strong className="photo-card-name" title={photoNameStem(asset.fileName)}>{photoNameStem(asset.fileName)}</strong>
-          {sceneId && placedSceneIds.has(sceneId) && <span className="photo-card-placed">Placed</span>}
-        </button>
-      </li>
-    )}</ol> : items.length === 0 && pending.length === 0 && <p className="empty-copy">No 360 photos yet. Upload several photos to start your tour.</p>}
+    {warningCount > 0 && <details className="photo-warnings">
+      <summary>Warnings: {warningCount}</summary>
+      {unreachableNodeLabels.length > 0 && <div className="photo-warning-summary">
+        <strong>Not all nodes are reachable</strong>
+        <span>{unreachableNodeLabels.length} placed {unreachableNodeLabels.length === 1 ? 'node is' : 'nodes are'} unreachable from {startSceneLabel}.</span>
+        <small>{unreachableNodeLabels.slice(0, 3).join(', ')}{unreachableNodeLabels.length > 3 ? `, and ${unreachableNodeLabels.length - 3} more` : ''}</small>
+      </div>}
+      {(unplacedCount > 0 || isolatedCount > 0) && <div className="photo-warning-summary">
+        <strong>Needs attention</strong>
+        <span>{unplacedCount} unplaced · {isolatedCount} isolated</span>
+        <small>Unplaced photos have no canvas node. Isolated nodes have no outgoing links.</small>
+      </div>}
+    </details>}
+    {readyCards.length > 0 ? <PhotoCards tourId={tourId} cards={readyCards}
+      selectedSceneId={selectedSceneId} selectedNodeSceneId={selectedNodeSceneId}
+      onSelect={onSelect} warningBySceneId={warnings} /> :
+      <div className="photo-library-empty">
+        <p>Go to the manage page to upload panoramas</p>
+        <Link className="button button--secondary" to={`/tours/${tourId}/manage`}>Open Manage</Link>
+      </div>}
   </div>;
-}
-
-function PhotoThumbnail({ tourId, assetId, alt }: { tourId: string; assetId: string; alt: string }) {
-  const [url, setUrl] = useState('');
-  useEffect(() => {
-    let active = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    async function load() {
-      try {
-        const result = await tourApi.thumbnailUrl(tourId, assetId);
-        if (!active) return;
-        setUrl(result.url);
-        timer = setTimeout(() => void load(), Math.max(30, result.expiresIn - 60) * 1000);
-      } catch { if (active) setUrl(''); }
-    }
-    void load();
-    return () => { active = false; if (timer) clearTimeout(timer); };
-  }, [tourId, assetId]);
-  return url ? <img className="photo-thumb" src={url} alt={alt} /> : <div className="photo-thumb photo-thumb--empty" aria-hidden="true" />;
 }

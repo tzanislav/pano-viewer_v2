@@ -99,6 +99,21 @@ export class TourRepository {
     return { tour: toTour(tour), pages, scenes, placements, connections, links, assets, underlays };
   }
 
+  storageKeysForDelete(ownerUid: string, tourId: string, expectedVersion: number): string[] {
+    this.requireVersion(ownerUid, tourId, expectedVersion);
+    const assets = this.db.prepare('SELECT object_key, thumbnail_key FROM media_assets WHERE tour_id = ?')
+      .all(tourId) as { object_key: string; thumbnail_key: string | null }[];
+    return [...new Set(assets.flatMap(asset => asset.thumbnail_key
+      ? [asset.object_key, asset.thumbnail_key] : [asset.object_key]))];
+  }
+
+  deleteTour(ownerUid: string, tourId: string, expectedVersion: number): void {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      this.db.prepare('DELETE FROM tours WHERE id = ? AND owner_uid = ?').run(tourId, ownerUid);
+    })();
+  }
+
   updateTour(ownerUid: string, id: string, input: {
     expectedVersion: number; title?: string; defaultNorthYawDeg?: number; entrySceneId?: string | null;
   }): TourEditorData {
@@ -205,6 +220,11 @@ export class TourRepository {
   }): TourEditorData {
     this.db.transaction(() => {
       this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      const overlap = this.db.prepare(`SELECT c.id FROM plan_connections c
+        JOIN placements other ON other.id = CASE WHEN c.placement_a_id = ? THEN c.placement_b_id ELSE c.placement_a_id END
+        WHERE c.tour_id = ? AND (c.placement_a_id = ? OR c.placement_b_id = ?)
+          AND other.x = ? AND other.y = ?`).get(placementId, tourId, placementId, placementId, input.x, input.y);
+      if (overlap) throw new AppError(422, 'SAME_POSITION', 'Connected nodes must have different positions');
       const result = this.db.prepare('UPDATE placements SET x = ?, y = ? WHERE id = ? AND tour_id = ?')
         .run(input.x, input.y, placementId, tourId);
       if (!result.changes) throw new AppError(404, 'PLACEMENT_NOT_FOUND', 'Node not found');
@@ -225,6 +245,161 @@ export class TourRepository {
       this.db.prepare(`DELETE FROM plan_connections WHERE tour_id = ? AND (placement_a_id = ? OR placement_b_id = ?)`)
         .run(tourId, placementId, placementId);
       this.db.prepare('DELETE FROM placements WHERE id = ? AND tour_id = ?').run(placementId, tourId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  deleteScene(ownerUid: string, tourId: string, sceneId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const scene = this.db.prepare('SELECT panorama_asset_id FROM scenes WHERE id = ? AND tour_id = ?')
+        .get(sceneId, tourId) as { panorama_asset_id: string } | undefined;
+      if (!scene) throw new AppError(404, 'SCENE_NOT_FOUND', 'Photo not found');
+      const pending = this.db.prepare(`SELECT id FROM media_assets WHERE tour_id = ?
+        AND replaces_scene_id = ? AND status IN ('uploading', 'processing') AND retired_at IS NULL`).get(tourId, sceneId);
+      if (pending) throw new AppError(409, 'UPLOAD_IN_PROGRESS', 'Wait for the replacement upload to finish or cancel it');
+
+      this.db.prepare('UPDATE tours SET entry_scene_id = NULL WHERE id = ? AND entry_scene_id = ?')
+        .run(tourId, sceneId);
+      this.db.prepare(`DELETE FROM navigation_links WHERE tour_id = ?
+        AND (source_scene_id = ? OR target_scene_id = ?)`).run(tourId, sceneId, sceneId);
+      this.db.prepare(`DELETE FROM plan_connections WHERE tour_id = ? AND
+        (placement_a_id IN (SELECT id FROM placements WHERE tour_id = ? AND scene_id = ?)
+         OR placement_b_id IN (SELECT id FROM placements WHERE tour_id = ? AND scene_id = ?))`)
+        .run(tourId, tourId, sceneId, tourId, sceneId);
+      this.db.prepare('DELETE FROM placements WHERE tour_id = ? AND scene_id = ?').run(tourId, sceneId);
+      this.db.prepare('DELETE FROM scenes WHERE id = ? AND tour_id = ?').run(sceneId, tourId);
+      const now = new Date().toISOString();
+      this.db.prepare(`UPDATE media_assets SET retired_at = ?, updated_at = ? WHERE tour_id = ?
+        AND kind = 'panorama' AND retired_at IS NULL
+        AND (id = ? OR replaces_scene_id = ?)`).run(now, now, tourId, scene.panorama_asset_id, sceneId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  createPlanConnection(ownerUid: string, tourId: string, input: {
+    placementAId: string; placementBId: string; expectedVersion: number;
+  }): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      if (input.placementAId === input.placementBId) throw new AppError(422, 'SELF_CONNECTION', 'Choose a different node');
+      const placements = this.db.prepare('SELECT * FROM placements WHERE id = ? AND tour_id = ?');
+      const first = placements.get(input.placementAId, tourId) as PlacementRow | undefined;
+      const second = placements.get(input.placementBId, tourId) as PlacementRow | undefined;
+      if (!first || !second) throw new AppError(404, 'PLACEMENT_NOT_FOUND', 'Node not found');
+      if (first.page_id !== second.page_id) throw new AppError(422, 'DIFFERENT_PAGES', 'Choose a node on the same page');
+      if (first.x === second.x && first.y === second.y) {
+        throw new AppError(422, 'SAME_POSITION', 'Move one node before connecting them');
+      }
+      const [a, b] = [first.id, second.id].sort();
+      const existing = this.db.prepare(`SELECT id FROM plan_connections
+        WHERE tour_id = ? AND placement_a_id = ? AND placement_b_id = ?`).get(tourId, a, b);
+      if (existing) throw new AppError(409, 'CONNECTION_EXISTS', 'These nodes are already connected');
+      const connectionId = randomUUID();
+      this.db.prepare(`INSERT INTO plan_connections (id, tour_id, placement_a_id, placement_b_id)
+        VALUES (?, ?, ?, ?)`).run(connectionId, tourId, a, b);
+      const insertLink = this.db.prepare(`INSERT INTO navigation_links
+        (id, tour_id, source_scene_id, target_scene_id, plan_connection_id, position_mode)
+        VALUES (?, ?, ?, ?, ?, 'auto')`);
+      insertLink.run(randomUUID(), tourId, first.scene_id, second.scene_id, connectionId);
+      insertLink.run(randomUUID(), tourId, second.scene_id, first.scene_id, connectionId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  deletePlanConnection(ownerUid: string, tourId: string, connectionId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const connection = this.db.prepare('SELECT id FROM plan_connections WHERE id = ? AND tour_id = ?')
+        .get(connectionId, tourId);
+      if (!connection) throw new AppError(404, 'CONNECTION_NOT_FOUND', 'Connection not found');
+      this.db.prepare('DELETE FROM navigation_links WHERE tour_id = ? AND plan_connection_id = ?').run(tourId, connectionId);
+      this.db.prepare('DELETE FROM plan_connections WHERE id = ? AND tour_id = ?').run(connectionId, tourId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  deletePlanDirection(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const link = this.db.prepare('SELECT plan_connection_id FROM navigation_links WHERE id = ? AND tour_id = ?')
+        .get(linkId, tourId) as { plan_connection_id: string | null } | undefined;
+      if (!link?.plan_connection_id) throw new AppError(404, 'PLAN_LINK_NOT_FOUND', 'Plan direction not found');
+      this.db.prepare('DELETE FROM navigation_links WHERE id = ? AND tour_id = ?').run(linkId, tourId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  resetPlanDirection(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const link = this.db.prepare('SELECT plan_connection_id FROM navigation_links WHERE id = ? AND tour_id = ?')
+        .get(linkId, tourId) as { plan_connection_id: string | null } | undefined;
+      if (!link?.plan_connection_id) throw new AppError(409, 'NOT_PLAN_LINK', 'Only plan links can reset to a plan direction');
+      const connection = this.db.prepare(`SELECT a.page_id AS page_a, b.page_id AS page_b,
+        a.x AS ax, a.y AS ay, b.x AS bx, b.y AS by FROM plan_connections c
+        JOIN placements a ON a.id = c.placement_a_id JOIN placements b ON b.id = c.placement_b_id
+        WHERE c.id = ? AND c.tour_id = ?`).get(link.plan_connection_id, tourId) as {
+          page_a: string; page_b: string; ax: number; ay: number; bx: number; by: number;
+        } | undefined;
+      if (!connection || connection.page_a !== connection.page_b ||
+        (connection.ax === connection.bx && connection.ay === connection.by)) {
+        throw new AppError(409, 'NO_PLAN_DIRECTION', 'This connection has no plan direction');
+      }
+      this.db.prepare(`UPDATE navigation_links SET position_mode = 'auto', manual_yaw_deg = NULL,
+        manual_pitch_deg = NULL WHERE id = ? AND tour_id = ?`).run(linkId, tourId);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  createViewerLink(ownerUid: string, tourId: string, input: {
+    sourceSceneId: string; targetSceneId: string; yawDeg: number; pitchDeg: number; expectedVersion: number;
+  }): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      if (input.sourceSceneId === input.targetSceneId) throw new AppError(422, 'SELF_LINK', 'Choose a different destination photo');
+      const ready = this.db.prepare(`SELECT s.id FROM scenes s JOIN media_assets m ON m.id = s.panorama_asset_id
+        WHERE s.id = ? AND s.tour_id = ? AND m.status = 'ready' AND m.retired_at IS NULL`);
+      if (!ready.get(input.sourceSceneId, tourId) || !ready.get(input.targetSceneId, tourId)) {
+        throw new AppError(404, 'SCENE_NOT_FOUND', 'Ready photo not found');
+      }
+      this.db.prepare(`INSERT INTO navigation_links
+        (id, tour_id, source_scene_id, target_scene_id, position_mode, manual_yaw_deg, manual_pitch_deg)
+        VALUES (?, ?, ?, ?, 'manual', ?, ?)`).run(randomUUID(), tourId,
+        input.sourceSceneId, input.targetSceneId, input.yawDeg, input.pitchDeg);
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  updateViewerLink(ownerUid: string, tourId: string, linkId: string, input: {
+    yawDeg: number; pitchDeg: number; expectedVersion: number;
+  }): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, input.expectedVersion);
+      const result = this.db.prepare(`UPDATE navigation_links SET position_mode = 'manual',
+        manual_yaw_deg = ?, manual_pitch_deg = ? WHERE id = ? AND tour_id = ?`)
+        .run(input.yawDeg, input.pitchDeg, linkId, tourId);
+      if (!result.changes) throw new AppError(404, 'LINK_NOT_FOUND', 'Link not found');
+      this.bumpVersion(tourId);
+    })();
+    return this.get(ownerUid, tourId);
+  }
+
+  deleteViewerLink(ownerUid: string, tourId: string, linkId: string, expectedVersion: number): TourEditorData {
+    this.db.transaction(() => {
+      this.requireVersion(ownerUid, tourId, expectedVersion);
+      const link = this.db.prepare('SELECT plan_connection_id FROM navigation_links WHERE id = ? AND tour_id = ?')
+        .get(linkId, tourId) as { plan_connection_id: string | null } | undefined;
+      if (!link) throw new AppError(404, 'LINK_NOT_FOUND', 'Link not found');
+      if (link.plan_connection_id) throw new AppError(409, 'PLAN_LINK', 'Remove plan links from the canvas');
+      this.db.prepare('DELETE FROM navigation_links WHERE id = ? AND tour_id = ?').run(linkId, tourId);
       this.bumpVersion(tourId);
     })();
     return this.get(ownerUid, tourId);

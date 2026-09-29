@@ -56,6 +56,58 @@ async function reserve(client: ReturnType<typeof request>, tourId: string, fileN
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe('panorama uploads', () => {
+  it('builds an owner-scoped manifest and keeps repeated viewer links independent', async () => {
+    const { client, storage } = fixture();
+    const created = await client.post('/api/tours').set('Authorization', 'Bearer alice').send({ title: 'Rooms' });
+    const tourId = created.body.tour.id as string;
+    const bytes = await panorama('blue');
+    const ids: string[] = [];
+    for (const name of ['Hall.jpg', 'Kitchen.jpg']) {
+      const upload = await reserve(client, tourId, name, bytes);
+      storage.objects.set(`tours/${tourId}/panoramas/${upload.body.asset.id}`, { bytes, mimeType: 'image/jpeg' });
+      const ready = await client.post(`/api/tours/${tourId}/uploads/${upload.body.asset.id}/complete`)
+        .set('Authorization', 'Bearer alice');
+      ids.push(ready.body.sceneId as string);
+    }
+    const path = `/api/tours/${tourId}/viewer-manifest`;
+    expect((await client.get(path)).status).toBe(401);
+    expect((await client.get(path).set('Authorization', 'Bearer bob')).status).toBe(404);
+    const manifest = await client.get(path).set('Authorization', 'Bearer alice');
+    expect(manifest.status).toBe(200);
+    expect(manifest.body.scenes).toHaveLength(2);
+    expect(manifest.body.entrySceneId).toBe(ids[0]);
+    expect(manifest.body.scenes[0].panoramaUrl).toContain('/panoramas/');
+    expect(manifest.body.scenes[0].thumbnailUrl).toContain('/thumbnails/');
+
+    let version = (await client.get(`/api/tours/${tourId}`).set('Authorization', 'Bearer alice')).body.tour.version as number;
+    const linkPath = `/api/tours/${tourId}/links`;
+    const linkIds: string[] = [];
+    for (const pitchDeg of [45, -45]) {
+      const added = await client.post(linkPath).set('Authorization', 'Bearer alice')
+        .send({ sourceSceneId: ids[0], targetSceneId: ids[1], yawDeg: 90,
+          pitchDeg, expectedVersion: version });
+      expect(added.status).toBe(201);
+      version = added.body.tour.version;
+      linkIds.push(added.body.links.find((link: { manualPitchDeg: number }) => link.manualPitchDeg === pitchDeg).id as string);
+    }
+    expect(new Set(linkIds).size).toBe(2);
+    const withLinks = await client.get(path).set('Authorization', 'Bearer alice');
+    expect(withLinks.body.scenes[0].links).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: linkIds[0], targetSceneId: ids[1], yawDeg: 90, pitchDeg: 45 }),
+      expect.objectContaining({ id: linkIds[1], targetSceneId: ids[1], yawDeg: 90, pitchDeg: -45 })
+    ]));
+    const denied = await client.patch(`${linkPath}/${linkIds[0]}`).set('Authorization', 'Bearer bob')
+      .send({ yawDeg: 10, pitchDeg: 0, expectedVersion: version });
+    expect(denied.status).toBe(404);
+    const changed = await client.patch(`${linkPath}/${linkIds[0]}`).set('Authorization', 'Bearer alice')
+      .send({ yawDeg: -90, pitchDeg: 20, expectedVersion: version });
+    expect(changed.status).toBe(200);
+    expect(changed.body.links.find((link: { id: string }) => link.id === linkIds[0]))
+      .toMatchObject({ manualYawDeg: 270, manualPitchDeg: 20 });
+    const after = await client.get(path).set('Authorization', 'Bearer alice');
+    expect(after.body.scenes[0].links.find((link: { id: string }) => link.id === linkIds[1]).pitchDeg).toBe(-45);
+  });
+
   it('creates a scene and replaces the same photo name without losing its placement or links', async () => {
     const { client, db, storage } = fixture();
     const tour = await client.post('/api/tours').set('Authorization', 'Bearer alice').send({ title: 'House' });

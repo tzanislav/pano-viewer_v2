@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { fitPage, PAGE_SIZE, sceneDisplayNumbers, viewportToPage, zoomCanvas,
-  type CanvasView, type Page, type Placement, type Scene, type UnderlayUpload } from '@pano/domain';
+  type CanvasView, type NavigationLink, type Page, type Placement, type PlanConnection,
+  type Scene, type UnderlayUpload } from '@pano/domain';
 import { tourApi } from '../tours/tourApi';
 import { UnderlayControl } from './UnderlayControl';
 
 type Point = { x: number; y: number };
 
-export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, placements,
-  selectedSceneId, selectedPlacementId, onPlace, onSelectPlacement, onMove, onChanged }: {
+export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, placements, connections, links,
+  selectedSceneId, selectedPlacementId, connectingPlacementId, pendingMove, saving,
+  onPlace, onSelectPlacement, onMove, onChanged }: {
   tourId: string; page: Page; tourVersion: number; underlays: UnderlayUpload[];
-  scenes: Scene[]; placements: Placement[]; selectedSceneId: string | null; selectedPlacementId: string | null;
+  scenes: Scene[]; placements: Placement[]; connections: PlanConnection[]; links: NavigationLink[];
+  selectedSceneId: string | null; selectedPlacementId: string | null; connectingPlacementId: string | null;
+  pendingMove: { id: string; point: Point } | null; saving: boolean;
   onPlace: (sceneId: string, point: Point) => void; onSelectPlacement: (id: string | null) => void;
   onMove: (placementId: string, point: Point) => void; onChanged: () => Promise<void>;
 }) {
@@ -22,6 +26,8 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
   const [underlayUrl, setUnderlayUrl] = useState('');
   const underlay = underlays.find(upload => upload.id === page.planAssetId);
   const numbers = sceneDisplayNumbers(scenes);
+  const connectingPlacement = placements.find(placement => placement.id === connectingPlacementId);
+  const connectingNodeNumber = connectingPlacement ? numbers.get(connectingPlacement.sceneId) : undefined;
 
   useEffect(() => {
     const element = viewport.current;
@@ -76,7 +82,8 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
   }
 
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || saving) return;
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     pan.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY,
       x: view.x, y: view.y, moved: false };
@@ -105,7 +112,7 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
 
   function nodePointerDown(event: PointerEvent<HTMLButtonElement>, placement: Placement) {
     event.stopPropagation();
-    if (event.button !== 0) return;
+    if (event.button !== 0 || saving) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     nodeDrag.current = { id: event.pointerId, placementId: placement.id,
       startX: event.clientX, startY: event.clientY, moved: false };
@@ -134,8 +141,7 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
       const point = pagePoint(event.clientX, event.clientY);
       onMove(placement.id, { x: Math.max(0, Math.min(PAGE_SIZE, point.x)),
         y: Math.max(0, Math.min(PAGE_SIZE, point.y)) });
-    }
-    else onSelectPlacement(placement.id);
+    } else onSelectPlacement(placement.id);
     setPreview(null);
   }
 
@@ -148,7 +154,8 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
 
   return <div className="canvas-area" role="tabpanel" aria-label={`${page.name} plan`}>
     <div className="canvas-toolbar">
-      <span className="canvas-hint">{selectedSceneId ? 'Click the canvas to place this photo' : 'Drag to pan · Scroll to zoom'}</span>
+      <span className="canvas-hint">{connectingPlacementId ? 'Choose another node on this page to connect' :
+        selectedSceneId ? 'Click the canvas to place this photo' : 'Drag to pan · Scroll to zoom'}</span>
       <div className="canvas-toolbar-actions">
         {selectedSceneId && <button className="text-button" type="button"
           onClick={() => onPlace(selectedSceneId, { x: PAGE_SIZE / 2, y: PAGE_SIZE / 2 })}>Place at center</button>}
@@ -158,27 +165,58 @@ export function PlanCanvas({ tourId, page, tourVersion, underlays, scenes, place
         <UnderlayControl tourId={tourId} page={page} tourVersion={tourVersion} uploads={underlays} onChanged={onChanged} />
       </div>
     </div>
-    <div ref={viewport} className="canvas-viewport" data-placing={Boolean(selectedSceneId)}
+    <div ref={viewport} className="canvas-viewport" data-placing={Boolean(selectedSceneId || connectingPlacementId)}
+      data-connecting={Boolean(connectingPlacementId)}
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { pan.current = null; }}>
       <div className="canvas-world" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
         {underlayUrl && <img className="canvas-underlay" src={underlayUrl} alt="" draggable={false} style={frame} />}
+        <svg className="canvas-connections" viewBox="0 0 1000 1000" aria-hidden="true">
+          <defs><marker id="plan-direction-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5"
+            orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L7 4.5 L1 8" fill="none" stroke="currentColor" strokeWidth="2" /></marker></defs>
+          {connections.map(connection => {
+            const a = placements.find(item => item.id === connection.placementAId);
+            const b = placements.find(item => item.id === connection.placementBId);
+            if (!a || !b) return null;
+            const start = preview?.id === a.id ? preview.point : pendingMove?.id === a.id ? pendingMove.point : a;
+            const end = preview?.id === b.id ? preview.point : pendingMove?.id === b.id ? pendingMove.point : b;
+            const fromA = links.some(link => link.planConnectionId === connection.id && link.sourceSceneId === a.sceneId);
+            const fromB = links.some(link => link.planConnectionId === connection.id && link.sourceSceneId === b.sceneId);
+            const at = (fraction: number) => ({ x: start.x + (end.x - start.x) * fraction,
+              y: start.y + (end.y - start.y) * fraction });
+            return <g key={connection.id} className="canvas-connection">
+              <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+              {fromA && <line className="canvas-direction" x1={at(.58).x} y1={at(.58).y}
+                x2={at(.72).x} y2={at(.72).y} markerEnd="url(#plan-direction-arrow)" />}
+              {fromB && <line className="canvas-direction" x1={at(.42).x} y1={at(.42).y}
+                x2={at(.28).x} y2={at(.28).y} markerEnd="url(#plan-direction-arrow)" />}
+            </g>;
+          })}
+        </svg>
         {placements.map(placement => {
           const scene = scenes.find(candidate => candidate.id === placement.sceneId);
-          const point = preview?.id === placement.id ? preview.point : placement;
-          return <button key={placement.id} className="canvas-node" type="button" aria-label={`${scene?.name || 'Photo'} node ${scene ? numbers.get(scene.id) : ''}`}
+          const point = preview?.id === placement.id ? preview.point :
+            pendingMove?.id === placement.id ? pendingMove.point : placement;
+          return <button key={placement.id} className="canvas-node" type="button" aria-label={`Node ${numbers.get(placement.sceneId) ?? '?'}`}
             aria-pressed={selectedPlacementId === placement.id} style={{ left: point.x, top: point.y,
               transform: `translate(-50%, -50%) scale(${1 / view.scale})` }}
             onPointerDown={event => nodePointerDown(event, placement)}
             onPointerMove={event => nodePointerMove(event, placement)}
             onPointerUp={event => nodePointerUp(event, placement)}
             onPointerCancel={() => { nodeDrag.current = null; setPreview(null); }}
-            onClick={event => { event.stopPropagation(); onSelectPlacement(placement.id); }}>{scene ? numbers.get(scene.id) : '?'}</button>;
+            onDragStart={event => event.preventDefault()}
+            onClick={event => { event.stopPropagation(); if (event.detail === 0) onSelectPlacement(placement.id); }}>
+            {scene ? numbers.get(scene.id) : '?'}</button>;
         })}
         {!underlayUrl && placements.length === 0 && <div className="canvas-empty"><span className="eyebrow">{page.name}</span><h2>Plan canvas</h2><p>Upload an underlay or select a photo to place its node.</p></div>}
       </div>
       <div className="north-arrow" title={`North arrow: ${page.northAngleDeg} degrees clockwise from up`}
         onPointerDown={event => event.stopPropagation()}
         style={{ transform: `rotate(${page.northAngleDeg}deg)` }}>↑<span>N</span></div>
+      {connectingPlacementId && <div className="canvas-link-prompt" role="status">
+        <strong>Creating Link from Node {connectingNodeNumber ?? '?'}</strong>
+        <span>Select target node</span>
+      </div>}
+      {saving && <span className="canvas-saving" role="status">Saving…</span>}
     </div>
   </div>;
 }

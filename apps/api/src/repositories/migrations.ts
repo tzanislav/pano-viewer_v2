@@ -121,10 +121,36 @@ ALTER TABLE media_assets ADD COLUMN underlay_page_id TEXT;
 CREATE INDEX media_assets_underlay_page_idx ON media_assets(tour_id, underlay_page_id, status);
 `;
 
+const repeatedViewerLinksSchema = `
+CREATE TABLE navigation_links_next (
+  id TEXT PRIMARY KEY,
+  tour_id TEXT NOT NULL,
+  source_scene_id TEXT NOT NULL,
+  target_scene_id TEXT NOT NULL,
+  plan_connection_id TEXT,
+  position_mode TEXT NOT NULL CHECK (position_mode IN ('auto', 'manual')),
+  manual_yaw_deg REAL,
+  manual_pitch_deg REAL,
+  CHECK (source_scene_id <> target_scene_id),
+  CHECK ((position_mode = 'auto' AND plan_connection_id IS NOT NULL AND manual_yaw_deg IS NULL AND manual_pitch_deg IS NULL)
+     OR (position_mode = 'manual' AND manual_yaw_deg IS NOT NULL AND manual_pitch_deg BETWEEN -90 AND 90)),
+  FOREIGN KEY (tour_id) REFERENCES tours(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_scene_id, tour_id) REFERENCES scenes(id, tour_id) ON DELETE CASCADE,
+  FOREIGN KEY (target_scene_id, tour_id) REFERENCES scenes(id, tour_id) ON DELETE CASCADE,
+  FOREIGN KEY (plan_connection_id, tour_id) REFERENCES plan_connections(id, tour_id) ON DELETE CASCADE
+);
+INSERT INTO navigation_links_next SELECT * FROM navigation_links;
+DROP TABLE navigation_links;
+ALTER TABLE navigation_links_next RENAME TO navigation_links;
+CREATE UNIQUE INDEX navigation_links_plan_direction_idx ON navigation_links(plan_connection_id, source_scene_id)
+  WHERE plan_connection_id IS NOT NULL;
+CREATE INDEX navigation_links_source_idx ON navigation_links(tour_id, source_scene_id);
+`;
+
 export function runMigrations(db: Database.Database): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number | null };
-  if (version.version !== null && version.version > 3) throw new Error('Database schema is newer than this app');
+  if (version.version !== null && version.version > 4) throw new Error('Database schema is newer than this app');
   if (version.version === null) {
     db.transaction(() => {
       db.exec(firstSchema);
@@ -141,6 +167,12 @@ export function runMigrations(db: Database.Database): void {
     db.transaction(() => {
       db.exec(underlaySchema);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)').run(new Date().toISOString());
+    })();
+  }
+  if (version.version === null || version.version <= 3) {
+    db.transaction(() => {
+      db.exec(repeatedViewerLinksSchema);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)').run(new Date().toISOString());
     })();
   }
 }

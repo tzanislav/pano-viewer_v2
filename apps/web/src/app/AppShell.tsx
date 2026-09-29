@@ -21,8 +21,9 @@ export function AppShell() {
   const [signOutError, setSignOutError] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceHeader | null>(null);
   const editorMatch = useMatch('/tours/:tourId');
-  const editorTourId = editorMatch?.params.tourId;
-  const activeWorkspace = workspace?.tourId === editorTourId ? workspace : null;
+  const manageMatch = useMatch('/tours/:tourId/manage');
+  const workspaceTourId = editorMatch?.params.tourId || manageMatch?.params.tourId;
+  const activeWorkspace = workspace?.tourId === workspaceTourId ? workspace : null;
 
   async function leave() {
     try {
@@ -35,18 +36,20 @@ export function AppShell() {
     }
   }
   return <div className="app-shell">
-    <header className={`site-header${editorTourId ? ' site-header--workspace' : ''}`}>
+    <header className={`site-header${workspaceTourId ? ' site-header--workspace' : ''}`}>
       <Link className="brand" to="/">360<span>Walkthrough</span></Link>
-      {editorTourId && <nav className="workspace-header" aria-label="Tour navigation">
+      {workspaceTourId && <nav className="workspace-header" aria-label="Tour navigation">
         <Link className="text-link" to="/">← All tours</Link>
-        <span className="workspace-title" title={activeWorkspace?.title}>{activeWorkspace?.title || 'Walkthrough'}</span>
+        <Link className="workspace-title" to={`/tours/${workspaceTourId}`} title={activeWorkspace?.title}>{activeWorkspace?.title || 'Walkthrough'}</Link>
+        <Link className="button button--secondary workspace-manage-button" to={`/tours/${workspaceTourId}/manage`}
+          aria-current={manageMatch ? 'page' : undefined}>Manage</Link>
       </nav>}
       <div className="header-account">
-        {editorTourId && <>
+        {workspaceTourId && <>
           <span className="status workspace-save-status" data-tone={activeWorkspace?.saveState === 'error' ? 'error' : activeWorkspace?.saveState === 'saved' ? 'success' : undefined} role="status">
             {activeWorkspace?.saveState === 'saving' ? 'Saving…' : activeWorkspace?.saveState === 'error' ? 'Save failed' : 'Saved'}
           </span>
-          <Link className="button button--secondary" to={`/tours/${editorTourId}/viewer`}>Open viewer</Link>
+          <Link className="button button--secondary" to={`/tours/${workspaceTourId}/viewer`}>Open viewer</Link>
         </>}
         <span className="account-name">{user?.email}</span>
         {signOutError && <span className="status" data-tone="error" role="alert">Could not sign out. Try again.</span>}

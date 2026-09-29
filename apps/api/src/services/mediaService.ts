@@ -17,6 +17,8 @@ export class MediaService {
   constructor(private readonly repository: MediaRepository,
     private readonly storage: StorageGateway, private readonly limits: MediaLimits) {}
 
+  get readUrlTtlSeconds(): number { return this.limits.readUrlTtlSeconds; }
+
   async reserve(ownerUid: string, tourId: string, input: {
     fileName: string; mimeType: string; byteSize: number;
   }): Promise<{ asset: PanoramaAsset; uploadUrl: string; expiresIn: number }> {
@@ -94,6 +96,10 @@ export class MediaService {
 
   async cleanupRetired(): Promise<void> {
     for (const asset of this.repository.retiredAssets()) await this.cleanupOne(asset);
+  }
+
+  async deleteObjects(keys: readonly string[]): Promise<void> {
+    for (const key of keys) await this.storage.delete(key);
   }
 
   private async cleanupOne(asset: { id: string; object_key: string; thumbnail_key: string | null }): Promise<void> {

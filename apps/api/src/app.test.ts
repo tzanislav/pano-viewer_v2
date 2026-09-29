@@ -19,13 +19,18 @@ const temporaryDirectories: string[] = [];
 function testApp() {
   const db = openDatabase(':memory:');
   databases.push(db);
+  const deletedKeys: string[] = [];
+  let failingKey: string | null = null;
   const storage: StorageGateway = {
     signUpload: async () => 'https://example.test/upload',
     head: async () => null,
     read: async () => Buffer.alloc(0),
     writeThumbnail: async () => {},
     signRead: async () => 'https://example.test/read',
-    delete: async () => {}
+    delete: async key => {
+      if (key === failingKey) throw new Error('Storage unavailable');
+      deletedKeys.push(key);
+    }
   };
   const media = new MediaService(new MediaRepository(db), storage, {
     maxPanoramaBytes: 50_000_000, uploadUrlTtlSeconds: 900, readUrlTtlSeconds: 900
@@ -37,7 +42,7 @@ function testApp() {
     if (token === 'alice' || token === 'bob') return token;
     throw new Error('invalid token');
   }, 'http://localhost:5173');
-  return { client: request(app), db };
+  return { client: request(app), db, deletedKeys, failDeleteFor: (key: string | null) => { failingKey = key; } };
 }
 
 afterEach(() => {
@@ -46,6 +51,64 @@ afterEach(() => {
 });
 
 describe('tour access and persistence', () => {
+  it('deletes a tour’s photos, underlays, graph, and storage only for its owner', async () => {
+    const { client, db, deletedKeys, failDeleteFor } = testApp();
+    const auth = { Authorization: 'Bearer alice' };
+    const created = await client.post('/api/tours').set(auth).send({ title: 'Remove me' });
+    const tourId = created.body.tour.id as string;
+    const pageId = created.body.pages[0].id as string;
+    const other = await client.post('/api/tours').set(auth).send({ title: 'Keep me' });
+    const now = new Date().toISOString();
+    const mediaRows = [
+      { id: 'photo-a', kind: 'panorama', key: `tours/${tourId}/panoramas/a`, thumbnail: `tours/${tourId}/thumbnails/a.jpg`, retired: null },
+      { id: 'photo-b', kind: 'panorama', key: `tours/${tourId}/panoramas/b`, thumbnail: `tours/${tourId}/thumbnails/b.jpg`, retired: null },
+      { id: 'retired', kind: 'panorama', key: `tours/${tourId}/panoramas/retired`, thumbnail: null, retired: now },
+      { id: 'pending', kind: 'panorama', key: `tours/${tourId}/panoramas/pending`, thumbnail: null, retired: null },
+      { id: 'underlay', kind: 'plan', key: `tours/${tourId}/underlays/plan`, thumbnail: null, retired: null }
+    ] as const;
+    for (const row of mediaRows) db.prepare(`INSERT INTO media_assets
+      (id, tour_id, kind, object_key, thumbnail_key, mime_type, byte_size, status, retired_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'image/jpeg', 100, ?, ?, ?, ?)`).run(
+      row.id, tourId, row.kind, row.key, row.thumbnail, row.id === 'pending' ? 'uploading' : 'ready', row.retired, now, now);
+    db.prepare('UPDATE pages SET plan_asset_id = ? WHERE id = ?').run('underlay', pageId);
+    for (const [id, assetId, order] of [['scene-a', 'photo-a', 0], ['scene-b', 'photo-b', 1]] as const) {
+      db.prepare('INSERT INTO scenes (id, tour_id, panorama_asset_id, name, sort_order) VALUES (?, ?, ?, ?, ?)')
+        .run(id, tourId, assetId, id, order);
+    }
+    db.prepare('INSERT INTO placements (id, tour_id, page_id, scene_id, x, y) VALUES (?, ?, ?, ?, 100, 100)')
+      .run('node-a', tourId, pageId, 'scene-a');
+    db.prepare('INSERT INTO placements (id, tour_id, page_id, scene_id, x, y) VALUES (?, ?, ?, ?, 500, 500)')
+      .run('node-b', tourId, pageId, 'scene-b');
+    db.prepare('INSERT INTO plan_connections (id, tour_id, placement_a_id, placement_b_id) VALUES (?, ?, ?, ?)')
+      .run('line', tourId, 'node-a', 'node-b');
+    db.prepare(`INSERT INTO navigation_links
+      (id, tour_id, source_scene_id, target_scene_id, plan_connection_id, position_mode)
+      VALUES (?, ?, ?, ?, ?, 'auto')`).run('link', tourId, 'scene-a', 'scene-b', 'line');
+
+    const forbidden = await client.delete(`/api/tours/${tourId}`).set('Authorization', 'Bearer bob')
+      .send({ expectedVersion: 1 });
+    expect(forbidden.status).toBe(404);
+    const stale = await client.delete(`/api/tours/${tourId}`).set(auth).send({ expectedVersion: 2 });
+    expect(stale.status).toBe(409);
+    expect(deletedKeys).toEqual([]);
+
+    failDeleteFor(mediaRows[0].key);
+    const failed = await client.delete(`/api/tours/${tourId}`).set(auth).send({ expectedVersion: 1 });
+    expect(failed.status).toBe(500);
+    expect(db.prepare('SELECT id FROM tours WHERE id = ?').get(tourId)).toBeTruthy();
+    failDeleteFor(null);
+    const deleted = await client.delete(`/api/tours/${tourId}`).set(auth).send({ expectedVersion: 1 });
+    expect(deleted.status).toBe(204);
+    expect(deletedKeys.sort()).toEqual(mediaRows.flatMap(row => row.thumbnail ? [row.key, row.thumbnail] : [row.key]).sort());
+    for (const table of ['tours', 'media_assets', 'pages', 'scenes', 'placements', 'plan_connections', 'navigation_links']) {
+      const count = db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${table === 'tours' ? 'id' : 'tour_id'} = ?`)
+        .get(tourId) as { count: number };
+      expect(count.count).toBe(0);
+    }
+    const list = await client.get('/api/tours').set(auth);
+    expect(list.body.tours.map((tour: { id: string }) => tour.id)).toEqual([other.body.tour.id]);
+  });
+
   it('rejects missing and invalid credentials with a request ID', async () => {
     const { client } = testApp();
     for (const header of [undefined, 'Bearer invalid']) {
@@ -151,7 +214,7 @@ describe('tour access and persistence', () => {
     const reopened = openDatabase(path);
     databases.push(reopened);
     const versions = reopened.prepare('SELECT version FROM schema_migrations').all();
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
     expect(new TourRepository(reopened).list('alice')[0].title).toBe('Saved tour');
   });
 });

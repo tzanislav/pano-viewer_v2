@@ -35,3 +35,9 @@ Do not persist PSV plugin objects or use its coordinates as the project's only s
 5. Switch scenes with the custom tray, including a narrow mobile viewport.
 
 If step 3 or 4 fails, keep PSV for panorama display and render app-owned HTML hotspots using its documented coordinate helpers. If that is still impractical, prototype the same spike with Pannellum before changing frameworks.
+
+### Implementation and visual check status (2026-09-29)
+
+The application now mounts PSV v5 behind `PanoramaAdapter`, uses the Virtual Tour plugin for normal navigation, and destroys the instance when the viewer unmounts. A private manifest signs originals and thumbnails for every ready scene. A custom tray navigates to placed or unplaced scenes. Owner Edit mode renders app-owned drag handles over the panorama; pointer position is converted through PSV's coordinate helper and saved as photo-local yaw/pitch. Clicking the sphere or entering numbers also repositions a selected link. The API accepts repeated viewer links to the same target and keeps each link ID independent.
+
+Automated checks cover cardinal direction math, a rotated page north arrow, manual direction stability after a plan move, owner authorization, and two saved hotspots at +45° and -45°. Same-page canvas **Create Link** is enabled and stores two automatic directed hotspots; either position can be overridden and reset to plan. These checks do not establish visible hotspot alignment or touch behavior. For the browser pass, use two real panoramas with recognizable compass directions: navigate by tray and hotspot, inspect north/east/south/west after calibration, place links above and below the horizon, drag one with mouse and touch, reload to confirm its position, pan the sphere while Edit mode is on, then turn Edit mode off and confirm normal hotspot navigation. Open and leave the viewer repeatedly to check for lingering WebGL contexts. Repeat the tray and editing check at a narrow mobile viewport.
