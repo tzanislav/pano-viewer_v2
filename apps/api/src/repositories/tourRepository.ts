@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { NavigationLink, Page, Placement, PlanConnection, Scene, Tour, TourEditorData } from '@pano/domain';
 import { AppError } from '../errors.js';
@@ -68,6 +68,36 @@ const toLink = (row: LinkRow): NavigationLink => ({
 
 export class TourRepository {
   constructor(private readonly db: Database.Database) {}
+
+  shareToken(ownerUid: string, tourId: string): string | null {
+    this.requireOwner(ownerUid, tourId);
+    const row = this.db.prepare('SELECT token FROM tour_shares WHERE tour_id = ?').get(tourId) as { token: string } | undefined;
+    return row?.token ?? null;
+  }
+
+  createShare(ownerUid: string, tourId: string): string {
+    return this.db.transaction(() => {
+      this.requireOwner(ownerUid, tourId);
+      const existing = this.shareToken(ownerUid, tourId);
+      if (existing) return existing;
+      const token = randomBytes(32).toString('base64url');
+      this.db.prepare('INSERT INTO tour_shares (tour_id, token, created_at) VALUES (?, ?, ?)')
+        .run(tourId, token, new Date().toISOString());
+      return token;
+    })();
+  }
+
+  revokeShare(ownerUid: string, tourId: string): void {
+    this.requireOwner(ownerUid, tourId);
+    this.db.prepare('DELETE FROM tour_shares WHERE tour_id = ?').run(tourId);
+  }
+
+  sharedTour(token: string): { ownerUid: string; tourId: string } {
+    const row = this.db.prepare(`SELECT t.owner_uid AS ownerUid, t.id AS tourId FROM tour_shares s
+      JOIN tours t ON t.id = s.tour_id WHERE s.token = ?`).get(token) as { ownerUid: string; tourId: string } | undefined;
+    if (!row) throw new AppError(404, 'SHARE_NOT_FOUND', 'This share link is unavailable');
+    return row;
+  }
 
   list(ownerUid: string): Tour[] {
     const rows = this.db.prepare('SELECT * FROM tours WHERE owner_uid = ? ORDER BY updated_at DESC').all(ownerUid) as TourRow[];

@@ -28,6 +28,15 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   return response.json() as Promise<T>;
 }
 
+export async function publicApiRequest<T>(path: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, { cache: 'no-store' });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: { message?: string; code?: string } } | null;
+    throw new ApiError(body?.error?.message || 'The share link is unavailable', body?.error?.code || 'REQUEST_FAILED');
+  }
+  return response.json() as Promise<T>;
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return `${error.message}${error.requestId ? ` (request ${error.requestId})` : ''}`;
   return error instanceof Error ? error.message : 'Something went wrong';

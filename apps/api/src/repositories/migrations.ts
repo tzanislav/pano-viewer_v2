@@ -147,10 +147,18 @@ CREATE UNIQUE INDEX navigation_links_plan_direction_idx ON navigation_links(plan
 CREATE INDEX navigation_links_source_idx ON navigation_links(tour_id, source_scene_id);
 `;
 
+const sharingSchema = `
+CREATE TABLE tour_shares (
+  tour_id TEXT PRIMARY KEY REFERENCES tours(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+`;
+
 export function runMigrations(db: Database.Database): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
   const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number | null };
-  if (version.version !== null && version.version > 4) throw new Error('Database schema is newer than this app');
+  if (version.version !== null && version.version > 5) throw new Error('Database schema is newer than this app');
   if (version.version === null) {
     db.transaction(() => {
       db.exec(firstSchema);
@@ -173,6 +181,12 @@ export function runMigrations(db: Database.Database): void {
     db.transaction(() => {
       db.exec(repeatedViewerLinksSchema);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)').run(new Date().toISOString());
+    })();
+  }
+  if (version.version === null || version.version <= 4) {
+    db.transaction(() => {
+      db.exec(sharingSchema);
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (5, ?)').run(new Date().toISOString());
     })();
   }
 }

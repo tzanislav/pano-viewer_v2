@@ -20,6 +20,9 @@ export function TourManage() {
   const [error, setError] = useState('');
   const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [confirmTourDelete, setConfirmTourDelete] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareStatus, setShareStatus] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -29,6 +32,14 @@ export function TourManage() {
       setTitle(result.tour.title);
       setNorthYaw(String(result.tour.defaultNorthYawDeg));
     }).catch(cause => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, [tourId]);
+
+  useEffect(() => {
+    let active = true;
+    setShareToken(null);
+    void tourApi.share(tourId).then(result => { if (active) setShareToken(result.token); })
+      .catch(cause => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, [tourId]);
 
@@ -94,6 +105,33 @@ export function TourManage() {
     }
   }
 
+  async function createShare() {
+    if (shareBusy) return;
+    setShareBusy(true); setError(''); setShareStatus('');
+    try {
+      const result = await tourApi.createShare(tourId);
+      setShareToken(result.token);
+      setShareStatus('Share link is ready.');
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setShareBusy(false); }
+  }
+
+  async function revokeShare() {
+    if (shareBusy) return;
+    setShareBusy(true); setError(''); setShareStatus('');
+    try {
+      await tourApi.revokeShare(tourId);
+      setShareToken(null);
+      setShareStatus('Share link revoked.');
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setShareBusy(false); }
+  }
+
+  async function copyShare(url: string) {
+    try { await navigator.clipboard.writeText(url); setShareStatus('Link copied.'); }
+    catch { setError('Could not copy the link. Select the URL and copy it manually.'); }
+  }
+
   if (!data || data.tour.id !== tourId) return <main className="page-wrap">
     <p className="status" data-tone={error ? 'error' : undefined}>{error || 'Loading project…'}</p>
   </main>;
@@ -101,6 +139,7 @@ export function TourManage() {
   const numbers = sceneDisplayNumbers(data.scenes);
   const readyAssets = data.assets.filter(asset => asset.status === 'ready' &&
     data.scenes.some(scene => scene.panoramaAssetId === asset.id));
+  const shareUrl = shareToken ? `${window.location.origin}/share/${shareToken}` : '';
   return <main className="manage-page page-wrap">
     <div className="manage-heading">
       <div><p className="eyebrow">Project management</p><h1>{data.tour.title}</h1>
@@ -117,6 +156,19 @@ export function TourManage() {
           value={northYaw} onChange={event => setNorthYaw(event.target.value)} /></label>
         <button className="button button--secondary" disabled={busy}>Save project settings</button>
       </form>
+    </section>
+    <section className="manage-section panel" aria-labelledby="manage-share-heading">
+      <p className="eyebrow">Sharing</p><h2 id="manage-share-heading">Share walkthrough</h2>
+      <p className="muted">Anyone with the link can view the walkthrough without signing in. The link stays active until you revoke it or delete the project. It does not grant access to Edit mode or the canvas.</p>
+      {shareToken ? <div className="manage-share-controls">
+        <label className="field">Share link<input readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} /></label>
+        <div className="manage-share-actions">
+          <button className="button button--secondary" type="button" onClick={() => void copyShare(shareUrl)}>Copy link</button>
+          <button className="button button--danger" type="button" disabled={shareBusy} onClick={() => void revokeShare()}>Revoke link</button>
+        </div>
+      </div> : <button className="button button--secondary" type="button" disabled={shareBusy}
+        onClick={() => void createShare()}>Create share link</button>}
+      {shareStatus && <p className="status" data-tone="success" role="status">{shareStatus}</p>}
     </section>
     <section className="manage-section" aria-labelledby="manage-photos-heading">
       <div className="manage-section-heading"><div><p className="eyebrow">Photos</p>

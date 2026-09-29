@@ -8,6 +8,10 @@ export class TourService {
 
   list(ownerUid: string): Tour[] { return this.repository.list(ownerUid); }
   get(ownerUid: string, tourId: string): TourEditorData { return this.repository.get(ownerUid, tourId); }
+  shareToken(ownerUid: string, tourId: string): string | null { return this.repository.shareToken(ownerUid, tourId); }
+  createShare(ownerUid: string, tourId: string): string { return this.repository.createShare(ownerUid, tourId); }
+  revokeShare(ownerUid: string, tourId: string): void { this.repository.revokeShare(ownerUid, tourId); }
+  sharedTour(token: string): { ownerUid: string; tourId: string } { return this.repository.sharedTour(token); }
   create(ownerUid: string, title: string): TourEditorData { return this.repository.create(ownerUid, title); }
   storageKeysForDelete(ownerUid: string, tourId: string, expectedVersion: number): string[] {
     return this.repository.storageKeysForDelete(ownerUid, tourId, expectedVersion);

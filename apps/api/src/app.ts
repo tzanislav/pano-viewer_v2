@@ -34,6 +34,13 @@ export function createApp(tours: TourService, media: MediaService, underlays: Un
   app.use(cors({ origin: webOrigin }));
   app.use(express.json({ limit: '64kb' }));
   app.get('/health', (_req, res) => { res.json({ status: 'ok' }); });
+  app.get('/api/shares/:token/manifest', async (req, res) => {
+    const { token } = req.params;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new AppError(404, 'SHARE_NOT_FOUND', 'This share link is unavailable');
+    const share = tours.sharedTour(token);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await viewer.manifest(share.ownerUid, share.tourId));
+  });
 
   const authenticate: RequestHandler = async (req, _res, next) => {
     const match = /^Bearer (\S+)$/i.exec(req.header('authorization') || '');
@@ -61,6 +68,18 @@ export function createApp(tours: TourService, media: MediaService, underlays: Un
   });
   app.get('/api/tours/:id/viewer-manifest', async (req, res) => {
     res.json(await viewer.manifest(req.ownerUid, req.params.id));
+  });
+  app.get('/api/tours/:id/share', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ token: tours.shareToken(req.ownerUid, req.params.id) });
+  });
+  app.post('/api/tours/:id/share', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ token: tours.createShare(req.ownerUid, req.params.id) });
+  });
+  app.delete('/api/tours/:id/share', (req, res) => {
+    tours.revokeShare(req.ownerUid, req.params.id);
+    res.status(204).end();
   });
   app.patch('/api/tours/:id', (req, res) => {
     const input = updateTourInput.parse(req.body);
@@ -225,7 +244,7 @@ export function createApp(tours: TourService, media: MediaService, underlays: Un
         : new AppError(500, 'INTERNAL_ERROR', 'Something went wrong');
     log(known.status >= 500 ? 'error' : 'warn', 'api.request', {
       requestId: req.requestId, outcome: 'failure', code: known.code,
-      method: req.method, path: req.path
+      method: req.method, path: req.path.startsWith('/api/shares/') ? '/api/shares/:token/manifest' : req.path
     });
     if (known.status >= 500) console.error(error);
     res.status(known.status).json({ error: { code: known.code, message: known.message, requestId: req.requestId } });

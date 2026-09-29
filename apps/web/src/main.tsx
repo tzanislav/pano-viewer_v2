@@ -12,12 +12,14 @@ import { TourList } from './features/tours/TourList';
 import { TourEditor } from './features/editor/TourEditor';
 import { TourManage } from './features/tours/TourManage';
 const TourViewer = lazy(() => import('./features/viewer/TourViewer').then(module => ({ default: module.TourViewer })));
+const SharedTourViewer = lazy(() => import('./features/viewer/SharedTourViewer').then(module => ({ default: module.SharedTourViewer })));
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><AuthProvider>
   <Routes>
     <Route path="/sign-in" element={<AuthScreen mode="sign-in" />} />
     <Route path="/create-account" element={<AuthScreen mode="create-account" />} />
     <Route path="/forgot-password" element={<AuthScreen mode="forgot-password" />} />
+    <Route path="/share/:token" element={<Suspense fallback={<div className="loading-screen">Loading viewer…</div>}><SharedTourViewer /></Suspense>} />
     <Route element={<RequireAuth />}>
       <Route element={<AppShell />}>
         <Route index element={<TourList />} />

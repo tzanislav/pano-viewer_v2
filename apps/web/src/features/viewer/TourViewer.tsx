@@ -6,6 +6,7 @@ import { logAction } from '../../app/logAction';
 import { tourApi } from '../tours/tourApi';
 import { PhotoCards, readyPhotoCards } from '../tours/PhotoCards';
 import { PanoramaStage } from './PanoramaStage';
+import { ViewerTray } from './ViewerTray';
 
 interface Direction { yawDeg: number; pitchDeg: number }
 
@@ -142,15 +143,8 @@ export function TourViewer() {
               logAction('viewer.navigate', 'success', { tourId, sceneId: id }); }}
             onSelectLink={selectLink} onClick={clickSphere} onCommitLink={saveLink}
             onError={message => { setError(message); logAction('viewer.navigate', 'failure', { tourId, sceneId: activeSceneId }); }} />
-          <div className="viewer-tray" aria-label="Tour photos">
-            {manifest.scenes.map((scene, index) => <button key={scene.id} type="button" className="viewer-tray-item"
-              aria-current={scene.id === activeSceneId ? 'true' : undefined}
-              onClick={() => { setRequestedSceneId(scene.id); setSelectedLinkId(null); }}>
-              <img src={scene.thumbnailUrl} alt="" loading="lazy" />
-              <span className="viewer-tray-number">{sceneNumbers.get(scene.id) ?? index + 1}</span>
-              <span className="viewer-tray-label">{scene.name}</span>
-            </button>)}
-          </div>
+          <ViewerTray scenes={manifest.scenes} activeSceneId={activeSceneId} sceneNumbers={sceneNumbers}
+            onSelectScene={sceneId => { setRequestedSceneId(sceneId); setSelectedLinkId(null); }} />
         </div>
         {editMode && <aside className="viewer-editor" aria-label="Link editor">
           <h2>Links from {current ? sceneLabel(current.id) : 'photo'}</h2>

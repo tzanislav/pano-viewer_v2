@@ -1,5 +1,5 @@
 import type { PanoramaAsset, Tour, TourEditorData, UnderlayUpload, ViewerManifest } from '@pano/domain';
-import { apiRequest } from '../../app/apiClient';
+import { apiRequest, publicApiRequest } from '../../app/apiClient';
 
 export const tourApi = {
   list: () => apiRequest<{ tours: Tour[] }>('/tours'),
@@ -8,6 +8,10 @@ export const tourApi = {
   delete: (id: string, expectedVersion: number) =>
     apiRequest<void>(`/tours/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion }) }),
   viewerManifest: (id: string) => apiRequest<ViewerManifest>(`/tours/${encodeURIComponent(id)}/viewer-manifest`),
+  share: (id: string) => apiRequest<{ token: string | null }>(`/tours/${encodeURIComponent(id)}/share`),
+  createShare: (id: string) => apiRequest<{ token: string }>(`/tours/${encodeURIComponent(id)}/share`, { method: 'POST' }),
+  revokeShare: (id: string) => apiRequest<void>(`/tours/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
+  sharedViewerManifest: (token: string) => publicApiRequest<ViewerManifest>(`/shares/${encodeURIComponent(token)}/manifest`),
   createViewerLink: (id: string, body: { sourceSceneId: string; targetSceneId: string; yawDeg: number; pitchDeg: number; expectedVersion: number }) =>
     apiRequest<TourEditorData>(`/tours/${encodeURIComponent(id)}/links`, { method: 'POST', body: JSON.stringify(body) }),
   updateViewerLink: (id: string, linkId: string, body: { yawDeg: number; pitchDeg: number; expectedVersion: number }) =>

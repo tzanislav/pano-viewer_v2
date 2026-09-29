@@ -51,6 +51,44 @@ afterEach(() => {
 });
 
 describe('tour access and persistence', () => {
+  it('shares only the viewer and revokes the public link', async () => {
+    const { client, db } = testApp();
+    const alice = { Authorization: 'Bearer alice' };
+    const created = await client.post('/api/tours').set(alice).send({ title: 'Shared home' });
+    const tourId = created.body.tour.id as string;
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO media_assets
+      (id, tour_id, kind, object_key, thumbnail_key, mime_type, byte_size, status, created_at, updated_at)
+      VALUES ('shared-photo', ?, 'panorama', 'shared-object', 'shared-thumb', 'image/jpeg', 100, 'ready', ?, ?)`)
+      .run(tourId, now, now);
+    db.prepare(`INSERT INTO scenes (id, tour_id, panorama_asset_id, name, sort_order)
+      VALUES ('shared-scene', ?, 'shared-photo', 'Living room', 0)`).run(tourId);
+
+    expect((await client.get(`/api/tours/${tourId}/share`).set(alice)).body.token).toBeNull();
+    expect((await client.post(`/api/tours/${tourId}/share`).set('Authorization', 'Bearer bob')).status).toBe(404);
+    const createdShare = await client.post(`/api/tours/${tourId}/share`).set(alice);
+    const token = createdShare.body.token as string;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect((await client.post(`/api/tours/${tourId}/share`).set(alice)).body.token).toBe(token);
+    expect((await client.get(`/api/tours/${tourId}/share`).set(alice)).body.token).toBe(token);
+
+    const shared = await client.get(`/api/shares/${token}/manifest`);
+    expect(shared.status).toBe(200);
+    expect(shared.body.title).toBe('Shared home');
+    expect(shared.body.scenes).toEqual([expect.objectContaining({ id: 'shared-scene', name: 'Living room',
+      panoramaUrl: 'https://example.test/read', thumbnailUrl: 'https://example.test/read' })]);
+    expect(shared.body).not.toHaveProperty('pages');
+    expect((await client.get(`/api/tours/${tourId}`)).status).toBe(401);
+    expect((await client.get(`/api/tours/${tourId}/viewer-manifest`)).status).toBe(401);
+    expect((await client.patch(`/api/tours/${tourId}`).send({ title: 'Changed', expectedVersion: 1 })).status).toBe(401);
+
+    expect((await client.delete(`/api/tours/${tourId}/share`).set(alice)).status).toBe(204);
+    expect((await client.get(`/api/shares/${token}/manifest`)).status).toBe(404);
+    const replacement = (await client.post(`/api/tours/${tourId}/share`).set(alice)).body.token as string;
+    expect(replacement).not.toBe(token);
+    expect((await client.delete(`/api/tours/${tourId}`).set(alice).send({ expectedVersion: 1 })).status).toBe(204);
+    expect((await client.get(`/api/shares/${replacement}/manifest`)).status).toBe(404);
+  });
   it('deletes a tour’s photos, underlays, graph, and storage only for its owner', async () => {
     const { client, db, deletedKeys, failDeleteFor } = testApp();
     const auth = { Authorization: 'Bearer alice' };
@@ -214,7 +252,7 @@ describe('tour access and persistence', () => {
     const reopened = openDatabase(path);
     databases.push(reopened);
     const versions = reopened.prepare('SELECT version FROM schema_migrations').all();
-    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    expect(versions).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
     expect(new TourRepository(reopened).list('alice')[0].title).toBe('Saved tour');
   });
 });

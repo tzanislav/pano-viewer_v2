@@ -8,7 +8,7 @@ These definitions keep the library, canvas, and viewer in sync without requiring
 
 ## Accounts and access
 
-Creators register and sign in through Firebase Authentication, initially with email and password. They can sign out and request a password-reset email. Each tour belongs to the Firebase user who created it. Only that signed-in owner can list, edit, upload media to, or open the viewer for the tour in the first build. A public read-only sharing feature can be added later. See the [authentication contract](AUTH.md).
+Creators register and sign in through Firebase Authentication, initially with email and password. They can sign out and request a password-reset email. Each tour belongs to the Firebase user who created it. Only that signed-in owner can list, edit, or upload media to the tour. On Manage, the owner can create one persistent share link for the walkthrough, copy it, and revoke it. Anyone with the link can view without signing in, but cannot access Edit mode, the canvas, or owner API data. Revoking the link or deleting the project stops future access through it. See the [authentication contract](AUTH.md).
 
 ## Creator mode
 
@@ -31,7 +31,7 @@ Creators register and sign in through Firebase Authentication, initially with em
 - For a signed-in owner viewing their own tour, show an **Edit mode** toggle. Edit mode reveals link handles and authoring controls. Turning it off returns to navigation. A viewer without owner permission never sees or gains these controls; every mutation still requires server-side owner authorization.
 - Edit mode opens the shared numbered photo card library for choosing link destinations. Its number matches the canvas node and the navigation tray. The library selection clears after placing one link; selecting the photo again allows another link to the same destination. The tray remains the control for switching the panorama being viewed.
 - Pan, zoom, and click hotspots to traverse links. A link always identifies its destination scene. A scene with no outgoing links is still reachable from the thumbnail tray.
-- Keep a bottom, horizontally scrollable tray containing **all ready uploaded 360 photos**, including unplaced ones. Highlight the active scene and switch to a scene when its thumbnail is chosen.
+- Keep a bottom, horizontally scrollable tray containing **all ready uploaded 360 photos**, including unplaced ones. Highlight the active scene and switch to a scene when its thumbnail is chosen. The tray can be collapsed to a small pull tab at the bottom of the viewport. In the shared viewer it opens on load, then closes after about 500 ms; the panorama fills the viewport below the viewer header.
 - Show a scene name and its page/floor when placed, or `Unplaced` when not. Provide a clear way back to the editor for an authorized creator.
 - Preserve orientation across scene changes where practical, but a link's custom position controls where that link appears in its source panorama. Camera transition behavior can be refined after the first viewer prototype.
 
@@ -68,4 +68,4 @@ Automatic bearings are meaningful only between nodes on the **same page**. Cross
 
 ## Scope and decisions
 
-The first build targets still equirectangular 360 photos and raster floor plans. Video, 3D models, multi-resolution image tiling, collaborative editing, and public publishing controls can follow later. A separate, owner-only viewer route is part of the first build. All uploaded photos should be viewable, so initial implementations must not equate “scene” with “placed node.”
+The first build targets still equirectangular 360 photos and raster floor plans. Video, 3D models, multi-resolution image tiling, and collaborative editing can follow later. The owner viewer route and the read-only shared viewer route are separate. All uploaded photos should be viewable, so initial implementations must not equate “scene” with “placed node.”

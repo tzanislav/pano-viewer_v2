@@ -12,7 +12,7 @@ Use **Firebase Authentication** in a new Firebase project for this app, with use
 4. Before an API request, call the signed-in user's `getIdToken()` and send `Authorization: Bearer <ID token>` over HTTPS. Obtain a token for each request through one shared API client so refresh is handled consistently.
 5. Protect creator and viewer routes in React for navigation and user feedback. The API remains the authority; a client route guard alone does not grant access. A signed-out user opening a private tour is sent to Sign in and returned to the requested route afterward.
 
-The initial viewer is private to the tour owner. Its default state is navigation; the owner can toggle Edit mode to adjust links on their own scenes. A public share-link flow is a separate later feature with read permission only and no Edit mode.
+The owner viewer requires Firebase authentication. Its default state is navigation; the owner can toggle Edit mode to adjust links on their own scenes. A separate public route uses an unguessable project share token to fetch only the viewer manifest. It needs no Firebase session and offers no Edit mode or canvas access. The owner can revoke the token, and project deletion removes it. Existing short-lived signed media URLs expire according to the configured read URL TTL.
 
 ## Express flow
 
